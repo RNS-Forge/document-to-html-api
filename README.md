@@ -16,17 +16,33 @@ A Python FastAPI service that converts **any document** into accurate semantic H
 | CSV / TSV | `.csv`, `.tsv` | Auto-detect delimiter → table |
 | Plain Text | `.txt`, `.log`, `.json`, `.xml` | Semantic paragraphs / code blocks |
 
+## Configuration (.env)
+
+Create a `.env` file in the root directory (or copy from `.env.example`):
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Default | Description |
+|---|---|---|
+| `LOCAL_RUN` | `true` | **`true`**: Serves an interactive drag-and-drop web testing UI at `http://localhost:8000/`.<br>**`false`**: Runs in pure API mode (returns JSON health check at `/`). |
+| `PORT` | `8000` | Port for the FastAPI server. |
+
 ## Quick Start
 
 ```bash
 # 1. Install dependencies
 pip install -r requirements.txt
 
-# 2. (Optional) Install Tesseract for image OCR
+# 2. Configure .env (optional, defaults to LOCAL_RUN=true)
+# See .env.example
+
+# 3. (Optional) Install Tesseract for image OCR
 #    Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki
 #    Ubuntu:  sudo apt install tesseract-ocr
 
-# 3. Run the server
+# 4. Run the server
 python app.py
 # or
 uvicorn app:app --host 0.0.0.0 --port 8000 --reload
@@ -35,7 +51,8 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 ## API Endpoints
 
 ### `GET /`
-Health check. Returns service status and supported formats.
+- **When `LOCAL_RUN=true`**: Returns the interactive drag-and-drop test page with real-time HTML preview, source viewer, and download options.
+- **When `LOCAL_RUN=false`**: Health check. Returns service status and supported formats in JSON.
 
 ### `POST /convert`
 Upload a file and get the **full HTML document** (with `<html>`, `<head>`, CSS).

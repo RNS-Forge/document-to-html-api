@@ -1,11 +1,12 @@
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 python-multipart==0.0.9
+python-dotenv==1.0.1
 
-# PDF processing
+# PDF processing  (PyMuPDF — full text/dict/html + table finder + image extraction)
 PyMuPDF==1.24.10
 
-# DOCX processing
+# DOCX processing (mammoth = semantic HTML, python-docx = granular structure)
 mammoth==1.8.0
 python-docx==1.1.2
 
@@ -19,10 +20,7 @@ openpyxl==3.1.5
 Pillow==10.4.0
 pytesseract==0.3.13
 
-# Markdown processing
+# Markdown processing (with extensions)
 markdown==3.7
 
-# CSV / plain text (stdlib, no extra install)
-
-# CORS
-starlette==0.38.5
+# CORS (included in starlette, installed with fastapi)
