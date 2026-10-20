@@ -1,44 +1,81 @@
 """
-Document-to-HTML API — Accurate Universal Document Converter
-============================================================
-Converts PDF, DOCX, PPTX, XLSX, images, Markdown, CSV, and plain text
-into pixel-accurate semantic HTML.
+Document-to-HTML API — High-Accuracy Universal Document Converter
+==================================================================
+Converts PDF, DOCX, PPTX, XLSX, images (PNG/JPG/WEBP/BMP/TIFF/GIF),
+SVG, Markdown, CSV, and plain text into high-fidelity, semantic HTML.
 
-Modes (controlled via .env):
-  LOCAL_RUN=true  → Serves a beautiful drag-and-drop upload test page at GET /
-  LOCAL_RUN=false  → API-only mode, GET / returns JSON health-check
-
-Run:
-    pip install -r requirements.txt
-    python app.py
+Key Features:
+  • ALL images embedded as Base64 data URIs (100% self-contained HTML).
+  • PDF: Visual reading order sorting (y0, x0), table detection with bounding
+    box exclusion, font-aware heading detection, color preservation,
+    hyperlinks, and high-res OCR fallback for scanned pages.
+  • DOCX: Mammoth semantic mapping + python-docx fallback, embedded Base64 images.
+  • PPTX: Slide cards, recursive group shape processing, picture shapes to Base64,
+    per-run typography and hyperlinks, table extraction, and speaker notes.
+  • XLSX: Multi-sheet tab navigation, merged cells, font & background fill colors,
+    date/number formatting, and embedded sheet images to Base64.
+  • Images: High-res Base64 rendering, metadata pills, and intelligent OCR.
+  • Local Test UI: Drag-and-drop web preview with live iframe, source code viewer,
+    download option, and conversion metrics (when LOCAL_RUN=true).
 """
 
 import io
 import os
 import csv
+import json
 import base64
+import time
+import shutil
 import traceback
 from pathlib import Path
+from typing import Optional, List, Dict, Any, Tuple
 
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
-LOCAL_RUN = os.getenv("LOCAL_RUN", "false").strip().lower() == "true"
+LOCAL_RUN = os.getenv("LOCAL_RUN", "true").strip().lower() == "true"
 PORT = int(os.getenv("PORT", "8000"))
-MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", 50 * 1024 * 1024))  # 50 MB default
+TESSERACT_CMD_ENV = os.getenv("TESSERACT_CMD", "").strip()
+
+# ─── Tesseract Setup & Detection ──────────────────────────────────────────────
+
+TESSERACT_AVAILABLE = False
+try:
+    import pytesseract
+    # Auto-detect common Windows paths if not configured
+    candidates = [
+        TESSERACT_CMD_ENV,
+        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\Programs\Tesseract-OCR\tesseract.exe"),
+    ]
+    for cand in candidates:
+        if cand and os.path.exists(cand):
+            pytesseract.pytesseract.tesseract_cmd = cand
+            break
+
+    # Verify if tesseract actually runs
+    try:
+        pytesseract.get_tesseract_version()
+        TESSERACT_AVAILABLE = True
+    except Exception:
+        TESSERACT_AVAILABLE = False
+except ImportError:
+    TESSERACT_AVAILABLE = False
 
 # ─── App Setup ────────────────────────────────────────────────────────────────
 
 app = FastAPI(
     title="Document-to-HTML API",
-    description="Converts PDF, DOCX, PPTX, XLSX, images, Markdown, CSV, TXT into accurate HTML.",
-    version="2.0.0",
+    description="Universal document converter producing pixel-accurate, self-contained semantic HTML.",
+    version="2.1.0",
 )
 
 app.add_middleware(
@@ -58,67 +95,275 @@ EXTENSION_MAP = {
     ".xlsx": "xlsx", ".xls": "xlsx",
     ".png": "image", ".jpg": "image", ".jpeg": "image",
     ".webp": "image", ".bmp": "image", ".tiff": "image",
-    ".tif": "image", ".gif": "image",
+    ".tif": "image", ".gif": "image", ".ico": "image",
     ".svg": "svg",
     ".md": "markdown", ".markdown": "markdown",
     ".csv": "csv", ".tsv": "csv",
-    ".txt": "text", ".log": "text", ".json": "text", ".xml": "text",
+    ".json": "json",
+    ".xml": "xml",
+    ".txt": "text", ".log": "text", ".yaml": "text", ".yml": "text",
     ".html": "passthrough", ".htm": "passthrough",
 }
 
-# ─── Shared CSS ───────────────────────────────────────────────────────────────
+# ─── Shared Responsive CSS ───────────────────────────────────────────────────
 
 SHARED_CSS = """
 <style>
-  .doc-root {
-    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
-    color: #1a1a1a; background: #fff; line-height: 1.6;
-    padding: 28px 36px; max-width: 960px; margin: 0 auto;
-    box-sizing: border-box; word-wrap: break-word;
+  :root {
+    --doc-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --doc-mono: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    --doc-text: #1e293b;
+    --doc-bg: #ffffff;
+    --doc-border: #e2e8f0;
+    --doc-primary: #3b82f6;
   }
-  .doc-root h1 { font-size: 1.75em; font-weight: 700; color: #111; border-bottom: 2px solid #e5e7eb; padding-bottom: 5px; margin: 0.6em 0 0.3em; }
-  .doc-root h2 { font-size: 1.35em; font-weight: 700; color: #1e293b; margin: 0.5em 0 0.25em; }
-  .doc-root h3 { font-size: 1.12em; font-weight: 600; color: #334155; margin: 0.4em 0 0.2em; }
-  .doc-root h4 { font-size: 1em; font-weight: 600; color: #475569; margin: 0.35em 0 0.15em; }
-  .doc-root p  { margin: 0.35em 0; font-size: 1em; }
-  .doc-root ul, .doc-root ol { margin: 0.3em 0; padding-left: 1.6em; }
-  .doc-root li { margin-bottom: 0.2em; }
-  .doc-root a { color: #2563eb; text-decoration: underline; }
-  .doc-root table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 0.92em; }
-  .doc-root th, .doc-root td { border: 1px solid #d1d5db; padding: 7px 10px; text-align: left; vertical-align: top; }
-  .doc-root th { background: #f1f5f9; font-weight: 700; color: #1e293b; }
-  .doc-root tr:nth-child(even) td { background: #f8fafc; }
-  .doc-root img { max-width: 100%; height: auto; display: block; margin: 8px 0; border-radius: 4px; }
-  .doc-root pre { background: #f8f9fa; padding: 12px 16px; border-radius: 6px; overflow-x: auto; font-size: 0.88em; border: 1px solid #e5e7eb; }
-  .doc-root code { font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace; }
-  .doc-root blockquote { border-left: 4px solid #6366f1; padding: 8px 16px; margin: 12px 0; background: #f5f3ff; color: #4338ca; }
-  .doc-root hr { border: none; border-top: 1.5px solid #e5e7eb; margin: 14px 0; }
-  .doc-root strong { font-weight: 700; }
-  .doc-root em { font-style: italic; }
-  .page-sep { border-top: 2px dashed #cbd5e1; margin: 16px 0; }
-  .slide-card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 22px 26px; margin-bottom: 18px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
-  .slide-title { font-size: 1.4em; font-weight: 700; color: #1e293b; margin-bottom: 10px; border-bottom: 2px solid #6366f1; padding-bottom: 5px; }
-  .slide-body { font-size: 1em; line-height: 1.5; }
-  .ocr-box { margin-top: 10px; padding: 12px 16px; background: #fffbeb; border: 1px solid #fbbf24; border-radius: 6px; font-size: 0.92em; color: #92400e; }
-  .page-label { font-size: 0.72em; color: #94a3b8; margin-bottom: 6px; letter-spacing: 0.5px; text-transform: uppercase; }
+  *, *::before, *::after { box-sizing: border-box; }
+  .doc-root {
+    font-family: var(--doc-font);
+    color: var(--doc-text);
+    background: var(--doc-bg);
+    line-height: 1.65;
+    padding: 32px 40px;
+    max-width: 960px;
+    margin: 0 auto;
+    word-wrap: break-word;
+    font-size: 15px;
+  }
+  .doc-root h1, .doc-root h2, .doc-root h3, .doc-root h4, .doc-root h5, .doc-root h6 {
+    color: #0f172a;
+    font-weight: 700;
+    line-height: 1.3;
+    margin: 1.1em 0 0.4em;
+  }
+  .doc-root h1 { font-size: 1.9em; border-bottom: 2px solid var(--doc-border); padding-bottom: 6px; }
+  .doc-root h2 { font-size: 1.45em; border-bottom: 1px solid var(--doc-border); padding-bottom: 4px; }
+  .doc-root h3 { font-size: 1.2em; }
+  .doc-root h4 { font-size: 1.05em; }
+  .doc-root p { margin: 0.5em 0; }
+  .doc-root a { color: var(--doc-primary); text-decoration: underline; text-underline-offset: 2px; }
+  .doc-root a:hover { color: #1d4ed8; }
+  .doc-root ul, .doc-root ol { margin: 0.5em 0; padding-left: 1.8em; }
+  .doc-root li { margin-bottom: 0.25em; }
+  .doc-root table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 14px 0;
+    font-size: 0.93em;
+    overflow-x: auto;
+    display: table;
+  }
+  .doc-table-wrap { overflow-x: auto; margin: 14px 0; border: 1px solid var(--doc-border); border-radius: 6px; }
+  .doc-table-wrap table { margin: 0; border: none; }
+  .doc-root th, .doc-root td {
+    border: 1px solid var(--doc-border);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  .doc-root th {
+    background: #f8fafc;
+    font-weight: 600;
+    color: #0f172a;
+  }
+  .doc-root tr:nth-child(even) td { background: #fafafa; }
+  .doc-root tr:hover td { background: #f1f5f9; }
+  .doc-root img {
+    max-width: 100%;
+    height: auto;
+    display: inline-block;
+    border-radius: 4px;
+    margin: 8px 0;
+  }
+  .doc-img-wrap {
+    text-align: center;
+    margin: 14px 0;
+  }
+  .doc-img-wrap img {
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  }
+  .doc-root pre {
+    background: #0f172a;
+    color: #f8fafc;
+    padding: 14px 18px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 0.88em;
+    line-height: 1.5;
+    margin: 12px 0;
+  }
+  .doc-root code {
+    font-family: var(--doc-mono);
+    font-size: 0.9em;
+  }
+  .doc-root p code, .doc-root li code {
+    background: #f1f5f9;
+    color: #0f172a;
+    padding: 2px 5px;
+    border-radius: 4px;
+    border: 1px solid var(--doc-border);
+  }
+  .doc-root blockquote {
+    border-left: 4px solid var(--doc-primary);
+    padding: 8px 16px;
+    margin: 12px 0;
+    background: #eff6ff;
+    color: #1e3a8a;
+    border-radius: 0 4px 4px 0;
+  }
+  .doc-root hr { border: none; border-top: 1.5px solid var(--doc-border); margin: 20px 0; }
+  .page-box {
+    margin-bottom: 24px;
+    padding-bottom: 24px;
+    border-bottom: 2px dashed #cbd5e1;
+  }
+  .page-box:last-child { border-bottom: none; }
+  .page-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .page-label::after { content: ''; flex: 1; height: 1px; background: #e2e8f0; }
+  .slide-card {
+    border: 1px solid var(--doc-border);
+    border-radius: 12px;
+    padding: 24px 28px;
+    margin-bottom: 22px;
+    background: #ffffff;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+  }
+  .slide-title {
+    font-size: 1.35em;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 12px;
+    border-bottom: 2px solid #6366f1;
+    padding-bottom: 6px;
+  }
+  .notes-drawer {
+    margin-top: 16px;
+    background: #f8fafc;
+    border: 1px solid var(--doc-border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 0.88em;
+  }
+  .notes-drawer summary { cursor: pointer; font-weight: 600; color: #475569; }
+  .notes-body { margin-top: 8px; color: #334155; }
+  .meta-badge-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+    font-size: 0.78rem;
+  }
+  .meta-badge {
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    padding: 3px 8px;
+    border-radius: 4px;
+    color: #334155;
+    font-weight: 500;
+  }
+  .ocr-box {
+    margin-top: 14px;
+    padding: 14px 18px;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 8px;
+    font-size: 0.9em;
+    color: #78350f;
+  }
+  .ocr-title {
+    font-weight: 700;
+    font-size: 0.85em;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+    color: #b45309;
+  }
+  .tab-container { margin: 16px 0; }
+  .tab-buttons { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 2px solid #e2e8f0; padding-bottom: 0; }
+  .tab-btn-sheet {
+    padding: 8px 16px;
+    border: 1px solid #cbd5e1;
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    background: #f1f5f9;
+    color: #475569;
+    font-weight: 600;
+    font-size: 0.88em;
+    cursor: pointer;
+  }
+  .tab-btn-sheet.active { background: #ffffff; color: var(--doc-primary); border-top: 2px solid var(--doc-primary); }
+  .tab-panel-sheet { display: none; padding: 16px 0; }
+  .tab-panel-sheet.active { display: block; }
+
+  @media print {
+    .doc-root { padding: 0; max-width: 100%; }
+    .page-box { page-break-after: always; border: none; margin: 0; }
+    .slide-card { page-break-after: always; box-shadow: none; border: none; }
+  }
 </style>
 """.strip()
 
 
-def _esc(text):
-    """HTML-escape a string."""
-    if not text:
+# ─── General Helpers ──────────────────────────────────────────────────────────
+
+def _esc(text: Any) -> str:
+    """HTML-escape a string cleanly."""
+    if text is None:
         return ""
-    return (str(text)
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace('"', "&quot;")
-            .replace("'", "&#39;"))
+    return (
+        str(text)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
+
+
+def _to_base64_data_uri(img_bytes: bytes, mime_type: str = "image/png") -> str:
+    """Return a complete base64 data URI string."""
+    b64 = base64.b64encode(img_bytes).decode("utf-8")
+    return f"data:{mime_type};base64,{b64}"
+
+
+def _detect_img_mime(data: bytes, filename: str = "") -> str:
+    """Detect image MIME type from magic numbers or filename."""
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
+        return "image/gif"
+    if data.startswith(b"RIFF") and len(data) > 12 and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data.startswith(b"BM"):
+        return "image/bmp"
+    if data.startswith(b"II*\x00") or data.startswith(b"MM\x00*"):
+        return "image/tiff"
+    if data.startswith(b"<svg") or b"<svg" in data[:200]:
+        return "image/svg+xml"
+
+    ext = Path(filename).suffix.lower().lstrip(".")
+    mime_map = {
+        "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+        "webp": "image/webp", "bmp": "image/bmp", "gif": "image/gif",
+        "tiff": "image/tiff", "tif": "image/tiff", "svg": "image/svg+xml",
+        "ico": "image/x-icon",
+    }
+    return mime_map.get(ext, "image/png")
 
 
 def wrap_html(body: str, title: str = "Converted Document") -> str:
-    """Wrap inner HTML in a full document with shared CSS."""
+    """Wrap inner HTML in a complete, self-contained HTML5 document."""
     return (
         f"<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n"
         f"  <meta charset=\"UTF-8\">\n"
@@ -131,125 +376,255 @@ def wrap_html(body: str, title: str = "Converted Document") -> str:
     )
 
 
+def _run_ocr_image(img_bytes: bytes) -> str:
+    """Safely run OCR on image bytes and return clean extracted text."""
+    if not TESSERACT_AVAILABLE:
+        return ""
+    try:
+        from PIL import Image, ImageEnhance
+        img = Image.open(io.BytesIO(img_bytes))
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+
+        # Contrast enhancement for sharper OCR recognition
+        if img.width < 1200:
+            scale = min(2.0, 1600 / max(img.width, 1))
+            new_size = (int(img.width * scale), int(img.height * scale))
+            img = img.resize(new_size, Image.Resampling.LANCZOS)
+
+        enhancer = ImageEnhance.Contrast(img)
+        img = enhancer.enhance(1.4)
+
+        text = pytesseract.image_to_string(img, lang="eng", config="--psm 3")
+        return text.strip()
+    except Exception:
+        return ""
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CONVERTERS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-# ── 1. PDF ────────────────────────────────────────────────────────────────────
-#  Strategy (from PyMuPDF best practices):
-#    1. Extract tables via page.find_tables() → tab.to_html()  (most accurate)
-#    2. Extract text via page.get_text("dict") for font-aware heading detection
-#    3. Extract images via page.get_images() + doc.extract_image(xref)
-#    4. For scanned PDFs (no text layer), fallback to OCR via Tesseract
-# ──────────────────────────────────────────────────────────────────────────────
+# ── 1. PDF Converter (High-Accuracy Engine) ──────────────────────────────────
 
 def convert_pdf(data: bytes, filename: str) -> str:
-    import fitz  # PyMuPDF
+    import pymupdf
 
-    doc = fitz.open(stream=data, filetype="pdf")
+    doc = pymupdf.open(stream=data, filetype="pdf")
     total_pages = len(doc)
     pages_html = []
 
+    # Calculate global font size distribution to infer body text size
+    font_sizes = []
+    for p in doc:
+        td = p.get_text("dict", flags=0)
+        for b in td.get("blocks", []):
+            if b.get("type") == 0:
+                for ln in b.get("lines", []):
+                    for sp in ln.get("spans", []):
+                        sz = sp.get("size", 0)
+                        if sz > 0:
+                            font_sizes.append(sz)
+
+    median_body_size = 11.0
+    if font_sizes:
+        font_sizes.sort()
+        median_body_size = font_sizes[len(font_sizes) // 2]
+    if median_body_size < 8:
+        median_body_size = 11.0
+
     for pg_num in range(total_pages):
         page = doc[pg_num]
-        parts = []
+        page_rect = page.rect
+        page_width = page_rect.width
+        elements = []  # List of dicts: {"y0": float, "x0": float, "type": str, "html": str}
 
-        # ── Step 1: Collect table bounding boxes so we can exclude them from text ──
+        # ── Step 1: Extract Hyperlinks ──
+        page_links = []
+        try:
+            links = page.get_links()
+            for lk in links:
+                uri = lk.get("uri")
+                lk_rect = lk.get("from")
+                if uri and lk_rect:
+                    page_links.append({"rect": pymupdf.Rect(lk_rect), "uri": uri})
+        except Exception:
+            pass
+
+        # ── Step 2: Extract Tables ──
         table_rects = []
-        table_html_blocks = []
         try:
             tab_finder = page.find_tables()
             for tab in tab_finder.tables:
-                table_rects.append(fitz.Rect(tab.bbox))
-                # Use PyMuPDF's built-in to_html() for maximum table accuracy
-                try:
-                    table_html_blocks.append(tab.to_html())
-                except Exception:
-                    # Fallback: manual table rendering
-                    extracted = tab.extract()
-                    table_html_blocks.append(_render_table(extracted))
+                tab_rect = pymupdf.Rect(tab.bbox)
+                table_rects.append(tab_rect)
+
+                # Render structured HTML table
+                extracted = tab.extract()
+                if extracted and len(extracted) > 0:
+                    tbl_html = _render_table_data(extracted)
+                    wrapped_tbl = f'<div class="doc-table-wrap">{tbl_html}</div>'
+                    elements.append({
+                        "y0": tab_rect.y0,
+                        "x0": tab_rect.x0,
+                        "type": "table",
+                        "html": wrapped_tbl,
+                    })
         except Exception:
             pass
 
-        # ── Step 2: Extract text blocks (dict) with font metadata ──
-        text_dict = page.get_text("dict", flags=11)  # TEXT_PRESERVE_WHITESPACE + PRESERVE_IMAGES
+        # ── Step 3: Extract Embedded Images as Base64 ──
+        extracted_xrefs = set()
+        image_rects = []
+        try:
+            img_infos = page.get_image_info(xrefs=True)
+            for info in img_infos:
+                xref = info.get("xref", 0)
+                bbox_t = info.get("bbox", (0, 0, 0, 0))
+                img_rect = pymupdf.Rect(bbox_t)
+
+                # Skip zero-sized or tiny 1px separator lines
+                if img_rect.width < 8 or img_rect.height < 8:
+                    continue
+
+                image_rects.append(img_rect)
+                if xref > 0 and xref not in extracted_xrefs:
+                    extracted_xrefs.add(xref)
+                    base_img = doc.extract_image(xref)
+                    if base_img:
+                        img_bytes = base_img["image"]
+                        ext = base_img.get("ext", "png")
+                        mime = f"image/{ext}" if ext != "jpg" else "image/jpeg"
+                        data_uri = _to_base64_data_uri(img_bytes, mime)
+                        img_html = (
+                            f'<div class="doc-img-wrap">'
+                            f'  <img src="{data_uri}" alt="Embedded Figure" '
+                            f'       style="max-width:100%;height:auto;">'
+                            f'</div>'
+                        )
+                        elements.append({
+                            "y0": img_rect.y0,
+                            "x0": img_rect.x0,
+                            "type": "image",
+                            "html": img_html,
+                        })
+        except Exception:
+            pass
+
+        # ── Step 4: Extract Text Blocks (dict) ──
+        pdf_flags = pymupdf.TEXT_PRESERVE_WHITESPACE | pymupdf.TEXT_PRESERVE_SPANS | pymupdf.TEXT_DEHYPHENATE
+        text_dict = page.get_text("dict", flags=pdf_flags)
         blocks = text_dict.get("blocks", [])
 
-        text_found = False
+        has_text = False
         for block in blocks:
-            block_rect = fitz.Rect(block["bbox"])
+            if block.get("type") == 0:  # Text block
+                block_rect = pymupdf.Rect(block["bbox"])
 
-            # Skip blocks that overlap with detected tables
-            if any(block_rect.intersects(tr) for tr in table_rects):
-                continue
+                # Skip text that significantly overlaps with detected tables
+                if any(block_rect.intersects(tr) for tr in table_rects):
+                    overlap = False
+                    for tr in table_rects:
+                        inter = block_rect & tr
+                        if inter.width * inter.height > 0.4 * (block_rect.width * block_rect.height):
+                            overlap = True
+                            break
+                    if overlap:
+                        continue
 
-            if block["type"] == 0:  # Text block
-                html = _render_pdf_text_block(block)
-                if html.strip():
-                    parts.append(html)
-                    text_found = True
+                block_html = _render_pdf_text_block(block, median_body_size, page_width, page_links)
+                if block_html.strip():
+                    has_text = True
+                    elements.append({
+                        "y0": block_rect.y0,
+                        "x0": block_rect.x0,
+                        "type": "text",
+                        "html": block_html,
+                    })
 
-            elif block["type"] == 1:  # Image block
-                img_bytes = block.get("image")
-                if img_bytes:
-                    ext = block.get("ext", "png")
-                    mime = f"image/{ext}" if ext != "jpg" else "image/jpeg"
-                    b64 = base64.b64encode(img_bytes).decode()
-                    parts.append(f'<img src="data:{mime};base64,{b64}" alt="PDF image page {pg_num+1}">')
+        # ── Step 5: Visual Reading Order Sort ──
+        elements.sort(key=lambda el: (round(el["y0"] / 6.0) * 6.0, el["x0"]))
 
-        # ── Step 3: Extract standalone images via get_images (catches ones dict misses) ──
-        try:
-            image_list = page.get_images(full=True)
-            for img_info in image_list:
-                xref = img_info[0]
-                base_img = doc.extract_image(xref)
-                if base_img:
-                    img_bytes = base_img["image"]
-                    img_ext = base_img.get("ext", "png")
-                    mime = f"image/{img_ext}" if img_ext != "jpg" else "image/jpeg"
-                    b64 = base64.b64encode(img_bytes).decode()
-                    # Avoid duplicate if the block already added this image
-                    img_tag = f'<img src="data:{mime};base64,{b64}" alt="Extracted image">'
-                    if img_tag not in parts:
-                        parts.append(img_tag)
-        except Exception:
-            pass
+        # Consecutive list normalization (group adjacent <li> into <ul>)
+        page_parts = []
+        list_buffer = []
 
-        # ── Step 4: Insert tables in page order ──
-        for tbl_html in table_html_blocks:
-            parts.append(tbl_html)
+        def flush_list():
+            if list_buffer:
+                page_parts.append(f"<ul>\n  " + "\n  ".join(list_buffer) + "\n</ul>")
+                list_buffer.clear()
 
-        # ── Step 5: OCR fallback for scanned pages ──
-        if not text_found and not table_html_blocks:
-            ocr_result = _ocr_pdf_page(page, pg_num, doc)
-            if ocr_result:
-                parts.append(ocr_result)
-
-        # ── Assemble page ──
-        if parts:
-            content = "\n    ".join(parts)
-            if total_pages > 1:
-                pages_html.append(
-                    f'<section data-page="{pg_num+1}">\n'
-                    f'  <div class="page-label">Page {pg_num+1} of {total_pages}</div>\n'
-                    f'  {content}\n'
-                    f'</section>'
-                )
-                if pg_num < total_pages - 1:
-                    pages_html.append('<div class="page-sep"></div>')
+        for el in elements:
+            html = el["html"]
+            if html.startswith("<li>") and html.endswith("</li>"):
+                list_buffer.append(html)
             else:
-                pages_html.append(content)
+                flush_list()
+                page_parts.append(html)
+        flush_list()
+
+        # ── Step 6: Scanned Page Fallback (Raster Pixmap + OCR) ──
+        if not has_text and not table_rects:
+            try:
+                mat = pymupdf.Matrix(2.0, 2.0)
+                pix = page.get_pixmap(matrix=mat)
+                img_bytes = pix.tobytes("png")
+                data_uri = _to_base64_data_uri(img_bytes, "image/png")
+
+                fallback_parts = [
+                    f'<div class="doc-img-wrap">'
+                    f'  <img src="{data_uri}" alt="Scanned Page {pg_num+1}">'
+                    f'</div>'
+                ]
+
+                ocr_text = _run_ocr_image(img_bytes)
+                if ocr_text:
+                    ocr_lines = [_esc(l) for l in ocr_text.split("\n") if l.strip()]
+                    fallback_parts.append(
+                        f'<div class="ocr-box">'
+                        f'  <div class="ocr-title">Recognized Text (OCR)</div>'
+                        f'  <div>{"<br>".join(ocr_lines)}</div>'
+                        f'</div>'
+                    )
+
+                page_parts = fallback_parts
+            except Exception:
+                pass
+
+        # Assemble page container
+        page_content = "\n    ".join(page_parts) if page_parts else "<p><em>(Blank page)</em></p>"
+        if total_pages > 1:
+            pages_html.append(
+                f'<section class="page-box" data-page="{pg_num+1}">\n'
+                f'  <div class="page-label">Page {pg_num+1} of {total_pages}</div>\n'
+                f'  {page_content}\n'
+                f'</section>'
+            )
+        else:
+            pages_html.append(page_content)
 
     doc.close()
-    inner = "\n".join(pages_html) if pages_html else "<p><em>No extractable content found in this PDF.</em></p>"
+    inner = "\n".join(pages_html) if pages_html else "<p><em>No extractable content found in PDF.</em></p>"
     return wrap_html(inner, filename)
 
 
-def _render_pdf_text_block(block: dict) -> str:
-    """Render a PyMuPDF dict text block into semantic HTML using font metrics."""
+def _render_pdf_text_block(block: dict, median_body_size: float, page_width: float, page_links: list) -> str:
+    """Render a text block preserving typography, colors, links, and alignments."""
+    import pymupdf
     lines_html = []
-    max_font_size = 0
+    max_font_size = 0.0
+
+    block_x0 = block.get("bbox", [0, 0, 0, 0])[0]
+    block_x1 = block.get("bbox", [0, 0, 0, 0])[2]
+    block_width = block_x1 - block_x0
+
+    align_style = ""
+    center_offset = abs((page_width - block_width) / 2.0 - block_x0)
+    if center_offset < 24 and block_width < page_width * 0.75:
+        align_style = ' style="text-align: center;"'
+    elif block_x0 > page_width * 0.55 and (page_width - block_x1) < 60:
+        align_style = ' style="text-align: right;"'
 
     for line in block.get("lines", []):
         spans_html = []
@@ -258,16 +633,18 @@ def _render_pdf_text_block(block: dict) -> str:
             if not text:
                 continue
 
-            size = span.get("size", 11)
+            size = span.get("size", 11.0)
             flags = span.get("flags", 0)
             color_int = span.get("color", 0)
             font_name = span.get("font", "")
+            span_bbox = pymupdf.Rect(span.get("bbox", (0, 0, 0, 0)))
 
             max_font_size = max(max_font_size, size)
 
-            is_bold = bool(flags & 16) or "Bold" in font_name or "bold" in font_name
-            is_italic = bool(flags & 2) or "Italic" in font_name or "italic" in font_name
-            is_mono = "Mono" in font_name or "Courier" in font_name or "Code" in font_name
+            is_bold = bool(flags & 16) or any(k in font_name.lower() for k in ("bold", "black", "heavy", "medium"))
+            is_italic = bool(flags & 2) or any(k in font_name.lower() for k in ("italic", "oblique"))
+            is_mono = any(k in font_name.lower() for k in ("mono", "courier", "code", "consolas"))
+            is_superscript = bool(flags & 1)
 
             escaped = _esc(text)
 
@@ -279,106 +656,82 @@ def _render_pdf_text_block(block: dict) -> str:
                 escaped = f"<strong>{escaped}</strong>"
             elif is_italic:
                 escaped = f"<em>{escaped}</em>"
+            if is_superscript:
+                escaped = f"<sup>{escaped}</sup>"
 
-            # Apply color if not black
             if color_int and color_int != 0:
                 r = (color_int >> 16) & 0xFF
                 g = (color_int >> 8) & 0xFF
                 b = color_int & 0xFF
-                if not (r < 30 and g < 30 and b < 30):  # skip near-black
+                if not (r < 32 and g < 32 and b < 32):
                     escaped = f'<span style="color:rgb({r},{g},{b})">{escaped}</span>'
+
+            for lk in page_links:
+                if lk["rect"].intersects(span_bbox):
+                    escaped = f'<a href="{_esc(lk["uri"])}" target="_blank" rel="noopener noreferrer">{escaped}</a>'
+                    break
 
             spans_html.append(escaped)
 
-        line_text = "".join(spans_html).strip()
-        if line_text:
-            lines_html.append(line_text)
+        line_str = "".join(spans_html).strip()
+        if line_str:
+            lines_html.append(line_str)
 
     if not lines_html:
         return ""
 
     combined = " ".join(lines_html)
 
-    # Determine semantic tag based on font size
-    if max_font_size >= 22:
-        return f"<h1>{combined}</h1>"
-    elif max_font_size >= 17:
-        return f"<h2>{combined}</h2>"
-    elif max_font_size >= 14:
-        return f"<h3>{combined}</h3>"
-    elif max_font_size >= 12.5:
-        return f"<h4>{combined}</h4>"
-    else:
-        # Detect bullet lines
-        if combined.lstrip().startswith(("•", "●", "○", "▪", "■", "–", "—")):
-            bullet_text = combined.lstrip("•●○▪■–— ").strip()
-            return f"<ul><li>{bullet_text}</li></ul>"
-        return f"<p>{combined}</p>"
+    stripped = combined.lstrip()
+    bullet_chars = ("•", "●", "○", "▪", "■", "–", "—", "- ", "* ")
+    for b in bullet_chars:
+        if stripped.startswith(b):
+            content = stripped[len(b):].strip()
+            return f"<li>{content}</li>"
+
+    ratio = max_font_size / max(median_body_size, 8.0)
+    if ratio >= 1.85:
+        return f"<h1{align_style}>{combined}</h1>"
+    elif ratio >= 1.45:
+        return f"<h2{align_style}>{combined}</h2>"
+    elif ratio >= 1.22:
+        return f"<h3{align_style}>{combined}</h3>"
+    elif ratio >= 1.10 and any(k in block.get("lines", [{}])[0].get("spans", [{}])[0].get("font", "").lower() for k in ("bold", "black")):
+        return f"<h4{align_style}>{combined}</h4>"
+
+    return f"<p{align_style}>{combined}</p>"
 
 
-def _render_table(table_data: list) -> str:
-    """Render a 2D list into an HTML table."""
+def _render_table_data(table_data: list) -> str:
+    """Render a 2D matrix into a clean semantic HTML table."""
     if not table_data:
         return ""
     html = "<table>\n"
-    for ri, row in enumerate(table_data):
-        tag = "th" if ri == 0 else "td"
+    for r_idx, row in enumerate(table_data):
+        tag = "th" if r_idx == 0 else "td"
         html += "  <tr>"
         for cell in row:
-            html += f"<{tag}>{_esc(str(cell) if cell is not None else '')}</{tag}>"
+            val = _esc(str(cell) if cell is not None else "")
+            html += f"<{tag}>{val}</{tag}>"
         html += "</tr>\n"
     html += "</table>"
     return html
 
 
-def _ocr_pdf_page(page, pg_num: int, doc) -> str:
-    """Render a PDF page as an image → Tesseract OCR → return HTML."""
-    try:
-        import pytesseract
-        from PIL import Image
-        import fitz
-
-        mat = fitz.Matrix(2.0, 2.0)  # 2x resolution for better OCR
-        pix = page.get_pixmap(matrix=mat)
-        img_data = pix.tobytes("png")
-
-        img = Image.open(io.BytesIO(img_data))
-        ocr_text = pytesseract.image_to_string(img, lang="eng")
-
-        parts = []
-        b64 = base64.b64encode(img_data).decode()
-        parts.append(f'<img src="data:image/png;base64,{b64}" alt="Scanned page {pg_num+1}">')
-
-        if ocr_text.strip():
-            lines = [_esc(l) for l in ocr_text.strip().split("\n") if l.strip()]
-            parts.append(f'<div class="ocr-box"><strong>OCR Text:</strong><br>{"<br>".join(lines)}</div>')
-
-        return "\n".join(parts)
-    except ImportError:
-        return ""
-    except Exception:
-        return ""
-
-
-# ── 2. DOCX ──────────────────────────────────────────────────────────────────
-#  Strategy (from mammoth best practices):
-#    • mammoth converts semantic styles → clean HTML (headings, lists, tables)
-#    • Custom style_map for common Word custom styles
-#    • Images embedded as inline base64 data URIs via img_element handler
-#    • Post-process: normalize empty paragraphs, fix nested lists
-# ──────────────────────────────────────────────────────────────────────────────
+# ── 2. DOCX Converter (Mammoth + python-docx Fallback) ────────────────────────
 
 def convert_docx(data: bytes, filename: str) -> str:
     import mammoth
 
-    # Custom style map for common Word styles
     style_map = """
-    p[style-name='Title'] => h1:fresh
+    p[style-name='Title'] => h1.title:fresh
     p[style-name='Subtitle'] => h2.subtitle:fresh
     p[style-name='Heading 1'] => h1:fresh
     p[style-name='Heading 2'] => h2:fresh
     p[style-name='Heading 3'] => h3:fresh
     p[style-name='Heading 4'] => h4:fresh
+    p[style-name='Heading 5'] => h5:fresh
+    p[style-name='Heading 6'] => h6:fresh
     p[style-name='Quote'] => blockquote > p:fresh
     p[style-name='Intense Quote'] => blockquote > p:fresh
     p[style-name='List Paragraph'] => li:fresh
@@ -388,99 +741,176 @@ def convert_docx(data: bytes, filename: str) -> str:
     r[style-name='Subtle Reference'] => cite
     """
 
-    result = mammoth.convert_to_html(
-        io.BytesIO(data),
-        style_map=style_map,
-        convert_image=mammoth.images.img_element(_mammoth_img_handler),
-    )
+    def _docx_img_handler(image):
+        with image.open() as stream:
+            img_bytes = stream.read()
+        ct = image.content_type or "image/png"
+        data_uri = _to_base64_data_uri(img_bytes, ct)
+        return {"src": data_uri, "style": "max-width:100%;height:auto;border-radius:4px;"}
 
-    inner_html = result.value
-    warnings = result.messages
-
-    # Post-process: clean up empty paragraphs mammoth sometimes generates
-    inner_html = inner_html.replace("<p></p>", "")
-
-    if warnings:
-        items = "".join(f"<li>{_esc(str(w))}</li>" for w in warnings[:5])
-        inner_html += (
-            f'\n<details style="margin-top:16px;font-size:0.8em;color:#64748b;">'
-            f'<summary>Conversion Notes ({len(warnings)})</summary>'
-            f'<ul>{items}</ul></details>'
+    try:
+        result = mammoth.convert_to_html(
+            io.BytesIO(data),
+            style_map=style_map,
+            convert_image=mammoth.images.img_element(_docx_img_handler),
         )
+        inner_html = result.value.replace("<p></p>", "").strip()
+        if inner_html:
+            return wrap_html(inner_html, filename)
+    except Exception:
+        pass
 
-    return wrap_html(inner_html, filename)
-
-
-def _mammoth_img_handler(image):
-    """Embed DOCX images as inline base64 data URIs."""
-    with image.open() as stream:
-        img_bytes = stream.read()
-    ct = image.content_type or "image/png"
-    b64 = base64.b64encode(img_bytes).decode()
-    return {"src": f"data:{ct};base64,{b64}"}
+    return _convert_docx_via_pythondocx(data, filename)
 
 
-# ── 3. PPTX ──────────────────────────────────────────────────────────────────
-#  Strategy (from python-pptx best practices):
-#    • Each slide → styled card with slide number + title
-#    • Iterate shapes: text frames → styled paragraphs with run-level formatting
-#    • Tables → semantic HTML tables
-#    • Images → base64 embedded
-#    • Preserve bold, italic, underline, font size, font color per run
-# ──────────────────────────────────────────────────────────────────────────────
+def _convert_docx_via_pythondocx(data: bytes, filename: str) -> str:
+    """Fallback DOCX converter using python-docx."""
+    from docx import Document
+
+    doc = Document(io.BytesIO(data))
+    parts = []
+
+    rel_images = {}
+    for rel_id, rel in doc.part.related_parts.items():
+        if "image" in rel.content_type:
+            mime = rel.content_type
+            b64_uri = _to_base64_data_uri(rel.blob, mime)
+            rel_images[rel_id] = b64_uri
+
+    for elem in doc.element.body:
+        tag_name = elem.tag.split("}")[-1]
+
+        if tag_name == "p":
+            from docx.text.paragraph import Paragraph
+            p = Paragraph(elem, doc)
+            if not p.text.strip():
+                continue
+
+            runs_html = []
+            for r in p.runs:
+                txt = _esc(r.text)
+                if not txt:
+                    continue
+                if r.bold:
+                    txt = f"<strong>{txt}</strong>"
+                if r.italic:
+                    txt = f"<em>{txt}</em>"
+                if r.underline:
+                    txt = f"<u>{txt}</u>"
+                try:
+                    if r.font.color and r.font.color.rgb:
+                        rgb = str(r.font.color.rgb)
+                        txt = f'<span style="color:#{rgb}">{txt}</span>'
+                except Exception:
+                    pass
+                runs_html.append(txt)
+
+            p_line = "".join(runs_html)
+            style_name = p.style.name.lower() if p.style else ""
+            if "heading 1" in style_name:
+                parts.append(f"<h1>{p_line}</h1>")
+            elif "heading 2" in style_name:
+                parts.append(f"<h2>{p_line}</h2>")
+            elif "heading 3" in style_name:
+                parts.append(f"<h3>{p_line}</h3>")
+            elif "list" in style_name:
+                parts.append(f"<ul><li>{p_line}</li></ul>")
+            else:
+                parts.append(f"<p>{p_line}</p>")
+
+        elif tag_name == "tbl":
+            from docx.table import Table
+            t = Table(elem, doc)
+            tbl_parts = ['<div class="doc-table-wrap"><table>']
+            for ri, row in enumerate(t.rows):
+                tag = "th" if ri == 0 else "td"
+                tbl_parts.append("  <tr>")
+                for cell in row.cells:
+                    val = _esc(cell.text.strip())
+                    tbl_parts.append(f"    <{tag}>{val}</{tag}>")
+                tbl_parts.append("  </tr>")
+            tbl_parts.append("</table></div>")
+            parts.append("\n".join(tbl_parts))
+
+    for r_id, uri in rel_images.items():
+        parts.append(f'<div class="doc-img-wrap"><img src="{uri}" alt="Document Picture"></div>')
+
+    inner = "\n".join(parts) if parts else "<p><em>(Empty document)</em></p>"
+    return wrap_html(inner, filename)
+
+
+# ── 3. PPTX Converter (High-Fidelity Slide Cards) ─────────────────────────────
 
 def convert_pptx(data: bytes, filename: str) -> str:
     from pptx import Presentation
-    from pptx.util import Pt, Emu
     from pptx.enum.shapes import MSO_SHAPE_TYPE
 
     prs = Presentation(io.BytesIO(data))
     slides_html = []
 
-    for s_num, slide in enumerate(prs.slides, 1):
+    for s_idx, slide in enumerate(prs.slides, 1):
         parts = []
         title_text = ""
 
-        # Sort shapes by top position then left, to approximate visual reading order
-        shapes = sorted(slide.shapes, key=lambda s: (s.top or 0, s.left or 0))
+        all_shapes = []
+        def collect_shapes(shape_list):
+            for shp in shape_list:
+                all_shapes.append(shp)
+                if shp.shape_type == MSO_SHAPE_TYPE.GROUP and hasattr(shp, "shapes"):
+                    collect_shapes(shp.shapes)
 
-        for shape in shapes:
-            # ── Title shape ──
+        collect_shapes(slide.shapes)
+        all_shapes.sort(key=lambda s: (getattr(s, "top", 0) or 0, getattr(s, "left", 0) or 0))
+
+        for shape in all_shapes:
             if shape == slide.shapes.title and shape.has_text_frame:
                 title_text = shape.text_frame.text.strip()
                 continue
 
-            # ── Text frames (with run-level formatting) ──
             if shape.has_text_frame:
-                frame_html = _render_pptx_text_frame(shape.text_frame)
-                if frame_html.strip():
-                    parts.append(frame_html)
+                txt_html = _render_pptx_text_frame(shape.text_frame)
+                if txt_html.strip():
+                    parts.append(txt_html)
 
-            # ── Tables ──
             if shape.has_table:
                 tbl = shape.table
-                rows = []
+                tbl_rows = []
                 for row in tbl.rows:
-                    cells = [cell.text.strip() for cell in row.cells]
-                    rows.append(cells)
-                if rows:
-                    parts.append(_render_table(rows))
+                    tbl_rows.append([cell.text.strip() for cell in row.cells])
+                if tbl_rows:
+                    parts.append(f'<div class="doc-table-wrap">{_render_table_data(tbl_rows)}</div>')
 
-            # ── Images ──
             try:
                 if shape.shape_type == MSO_SHAPE_TYPE.PICTURE or (hasattr(shape, "image") and shape.image):
                     img_blob = shape.image.blob
                     ct = shape.image.content_type or "image/png"
-                    b64 = base64.b64encode(img_blob).decode()
-                    parts.append(f'<img src="data:{ct};base64,{b64}" alt="Slide {s_num} image">')
+                    data_uri = _to_base64_data_uri(img_blob, ct)
+                    parts.append(f'<div class="doc-img-wrap"><img src="{data_uri}" alt="Slide {s_idx} Graphic"></div>')
             except Exception:
                 pass
 
-        # Build slide card
-        slide_title = f'<div class="slide-title">Slide {s_num}' + (f': {_esc(title_text)}' if title_text else '') + '</div>'
-        body = "\n    ".join(parts) if parts else "<p><em>(Empty slide)</em></p>"
+        notes_html = ""
+        try:
+            if slide.has_notes_slide and slide.notes_slide.notes_text_frame:
+                notes_text = slide.notes_slide.notes_text_frame.text.strip()
+                if notes_text:
+                    notes_html = (
+                        f'<details class="notes-drawer">'
+                        f'  <summary>Speaker Notes</summary>'
+                        f'  <div class="notes-body">{_esc(notes_text)}</div>'
+                        f'</details>'
+                    )
+        except Exception:
+            pass
+
+        slide_title = f'<div class="slide-title">Slide {s_idx}' + (f': {_esc(title_text)}' if title_text else '') + '</div>'
+        body = "\n    ".join(parts) if parts else "<p><em>(Empty slide content)</em></p>"
         slides_html.append(
-            f'<div class="slide-card">\n  {slide_title}\n  <div class="slide-body">\n    {body}\n  </div>\n</div>'
+            f'<div class="slide-card">\n'
+            f'  {slide_title}\n'
+            f'  <div class="slide-body">\n    {body}\n  </div>\n'
+            f'  {notes_html}\n'
+            f'</div>'
         )
 
     inner = "\n".join(slides_html) if slides_html else "<p><em>No slides found.</em></p>"
@@ -488,7 +918,7 @@ def convert_pptx(data: bytes, filename: str) -> str:
 
 
 def _render_pptx_text_frame(text_frame) -> str:
-    """Render a PPTX text frame with per-run formatting (bold, italic, underline, color, size)."""
+    """Render PPTX text frame with per-run formatting, colors, and hyperlinks."""
     paras = []
     for para in text_frame.paragraphs:
         if not para.text.strip():
@@ -496,25 +926,20 @@ def _render_pptx_text_frame(text_frame) -> str:
 
         runs_html = []
         for run in para.runs:
-            text = _esc(run.text)
-            if not text:
+            txt = _esc(run.text)
+            if not txt:
                 continue
 
             styles = []
             if run.font.bold:
-                text = f"<strong>{text}</strong>"
+                txt = f"<strong>{txt}</strong>"
             if run.font.italic:
-                text = f"<em>{text}</em>"
+                txt = f"<em>{txt}</em>"
             if run.font.underline:
-                text = f"<u>{text}</u>"
+                txt = f"<u>{txt}</u>"
+            if run.font.size and run.font.size.pt:
+                styles.append(f"font-size:{run.font.size.pt}pt")
 
-            # Font size
-            if run.font.size:
-                pt = run.font.size.pt
-                if pt:
-                    styles.append(f"font-size:{pt}pt")
-
-            # Font color
             try:
                 if run.font.color and run.font.color.rgb:
                     rgb = str(run.font.color.rgb)
@@ -523,136 +948,219 @@ def _render_pptx_text_frame(text_frame) -> str:
                 pass
 
             if styles:
-                text = f'<span style="{";".join(styles)}">{text}</span>'
+                txt = f'<span style="{";".join(styles)}">{txt}</span>'
 
-            runs_html.append(text)
+            try:
+                if run.hyperlink and run.hyperlink.address:
+                    txt = f'<a href="{_esc(run.hyperlink.address)}" target="_blank">{txt}</a>'
+            except Exception:
+                pass
+
+            runs_html.append(txt)
 
         if runs_html:
             line = "".join(runs_html)
-            # Detect list-style paragraphs by indent level
-            level = para.level or 0
-            if level > 0:
-                paras.append(f'<li style="margin-left:{level * 24}px">{line}</li>')
+            lvl = para.level or 0
+            if lvl > 0:
+                paras.append(f'<li style="margin-left:{lvl * 20}px;">{line}</li>')
             else:
                 paras.append(f"<p>{line}</p>")
 
     return "\n".join(paras)
 
 
-# ── 4. XLSX ──────────────────────────────────────────────────────────────────
-#  Strategy: openpyxl with merged-cell handling, bold detection, per-sheet tables
-# ──────────────────────────────────────────────────────────────────────────────
+# ── 4. XLSX Converter (Multi-Sheet Tabs & Styles) ─────────────────────────────
 
 def convert_xlsx(data: bytes, filename: str) -> str:
     from openpyxl import load_workbook
-    from openpyxl.utils import get_column_letter
+    from datetime import datetime, date
 
     wb = load_workbook(io.BytesIO(data), data_only=True)
-    sheets_html = []
+    sheet_names = wb.sheetnames
+    if not sheet_names:
+        return wrap_html("<p><em>Empty workbook.</em></p>", filename)
 
-    for sheet_name in wb.sheetnames:
-        ws = wb[sheet_name]
+    sheets_data = []
+
+    for s_idx, s_name in enumerate(sheet_names):
+        ws = wb[s_name]
         if ws.max_row is None or ws.max_row == 0:
             continue
 
-        parts = [f"<h2>{_esc(sheet_name)}</h2>", "<table>"]
+        sheet_imgs = []
+        try:
+            if hasattr(ws, "_images"):
+                for im in ws._images:
+                    img_bytes = im._data()
+                    mime = "image/png"
+                    data_uri = _to_base64_data_uri(img_bytes, mime)
+                    sheet_imgs.append(f'<div class="doc-img-wrap"><img src="{data_uri}" alt="Sheet Graphic"></div>')
+        except Exception:
+            pass
 
-        # Collect merged cell ranges for proper spanning
         merged = {}
         skip_cells = set()
-        for merge_range in ws.merged_cells.ranges:
-            min_row, min_col = merge_range.min_row, merge_range.min_col
-            max_row, max_col = merge_range.max_row, merge_range.max_col
-            merged[(min_row, min_col)] = (max_row - min_row + 1, max_col - min_col + 1)
-            for r in range(min_row, max_row + 1):
-                for c in range(min_col, max_col + 1):
-                    if (r, c) != (min_row, min_col):
+        for mr in ws.merged_cells.ranges:
+            merged[(mr.min_row, mr.min_col)] = (mr.max_row - mr.min_row + 1, mr.max_col - mr.min_col + 1)
+            for r in range(mr.min_row, mr.max_row + 1):
+                for c in range(mr.min_col, mr.max_col + 1):
+                    if (r, c) != (mr.min_row, mr.min_col):
                         skip_cells.add((r, c))
 
-        for row_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=ws.max_row, max_col=ws.max_column), 1):
-            tag = "th" if row_idx == 1 else "td"
-            parts.append("  <tr>")
+        tbl_parts = ['<div class="doc-table-wrap"><table>']
+        for r_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=ws.max_row, max_col=ws.max_column), 1):
+            tag = "th" if r_idx == 1 else "td"
+            tbl_parts.append("  <tr>")
             for cell in row:
                 coord = (cell.row, cell.column)
                 if coord in skip_cells:
                     continue
 
-                val = _esc(str(cell.value)) if cell.value is not None else ""
+                val_raw = cell.value
+                if isinstance(val_raw, (datetime, date)):
+                    val = _esc(val_raw.strftime("%Y-%m-%d"))
+                elif isinstance(val_raw, float):
+                    val = f"{val_raw:,.2f}".rstrip("0").rstrip(".") if "." in f"{val_raw}" else f"{val_raw:,.0f}"
+                else:
+                    val = _esc(str(val_raw) if val_raw is not None else "")
 
-                # Bold detection
+                styles = []
                 try:
-                    if cell.font and cell.font.bold:
-                        val = f"<strong>{val}</strong>"
+                    if cell.font:
+                        if cell.font.bold:
+                            val = f"<strong>{val}</strong>"
+                        if cell.font.color and cell.font.color.rgb and isinstance(cell.font.color.rgb, str):
+                            rgb = cell.font.color.rgb[-6:]
+                            styles.append(f"color:#{rgb}")
+                    if cell.fill and cell.fill.start_color and cell.fill.start_color.rgb and isinstance(cell.fill.start_color.rgb, str):
+                        bg = cell.fill.start_color.rgb[-6:]
+                        if bg != "000000":
+                            styles.append(f"background-color:#{bg}")
+                    if cell.alignment and cell.alignment.horizontal:
+                        styles.append(f"text-align:{cell.alignment.horizontal}")
                 except Exception:
                     pass
 
                 attrs = ""
+                if styles:
+                    attrs += f' style="{";".join(styles)}"'
                 if coord in merged:
-                    rowspan, colspan = merged[coord]
-                    if rowspan > 1:
-                        attrs += f' rowspan="{rowspan}"'
-                    if colspan > 1:
-                        attrs += f' colspan="{colspan}"'
+                    r_span, c_span = merged[coord]
+                    if r_span > 1:
+                        attrs += f' rowspan="{r_span}"'
+                    if c_span > 1:
+                        attrs += f' colspan="{c_span}"'
 
-                parts.append(f"    <{tag}{attrs}>{val}</{tag}>")
-            parts.append("  </tr>")
+                tbl_parts.append(f"    <{tag}{attrs}>{val}</{tag}>")
+            tbl_parts.append("  </tr>")
+        tbl_parts.append("</table></div>")
 
-        parts.append("</table>")
-        sheets_html.append("\n".join(parts))
+        full_sheet_html = "\n".join(sheet_imgs) + "\n" + "\n".join(tbl_parts)
+        sheets_data.append({"name": s_name, "html": full_sheet_html, "id": f"sheet_{s_idx}"})
 
-    inner = "\n<hr>\n".join(sheets_html) if sheets_html else "<p><em>No data found.</em></p>"
+    if not sheets_data:
+        return wrap_html("<p><em>No data found in workbook.</em></p>", filename)
+
+    if len(sheets_data) == 1:
+        return wrap_html(f"<h2>{_esc(sheets_data[0]['name'])}</h2>\n" + sheets_data[0]["html"], filename)
+
+    tab_buttons = []
+    tab_panels = []
+    for idx, sh in enumerate(sheets_data):
+        active_cls = " active" if idx == 0 else ""
+        tab_buttons.append(
+            f'<button class="tab-btn-sheet{active_cls}" onclick="switchSheetTab(\'{sh["id"]}\')">'
+            f'{_esc(sh["name"])}</button>'
+        )
+        tab_panels.append(
+            f'<div id="{sh["id"]}" class="tab-panel-sheet{active_cls}">\n{sh["html"]}\n</div>'
+        )
+
+    tab_script = """
+    <script>
+    function switchSheetTab(sheetId) {
+      document.querySelectorAll('.tab-panel-sheet').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.tab-btn-sheet').forEach(b => b.classList.remove('active'));
+      const target = document.getElementById(sheetId);
+      if(target) target.classList.add('active');
+      event.target.classList.add('active');
+    }
+    </script>
+    """
+
+    inner = (
+        f'<div class="tab-container">\n'
+        f'  <div class="tab-buttons">\n    {"".join(tab_buttons)}\n  </div>\n'
+        f'  {"".join(tab_panels)}\n'
+        f'</div>\n'
+        f'{tab_script}'
+    )
     return wrap_html(inner, filename)
 
 
-# ── 5. Image (with OCR) ──────────────────────────────────────────────────────
+# ── 5. Image Converter (Self-Contained Base64 + Smart OCR) ────────────────────
 
 def convert_image(data: bytes, filename: str) -> str:
     from PIL import Image
 
-    ext = Path(filename).suffix.lower().lstrip(".")
-    mime_map = {"jpg": "jpeg", "jpeg": "jpeg", "png": "png", "webp": "webp",
-                "bmp": "bmp", "gif": "gif", "tiff": "tiff", "tif": "tiff"}
-    mime = f"image/{mime_map.get(ext, 'png')}"
+    mime = _detect_img_mime(data, filename)
+    data_uri = _to_base64_data_uri(data, mime)
 
-    b64 = base64.b64encode(data).decode()
-    parts = [f'<img src="data:{mime};base64,{b64}" alt="{_esc(filename)}">']
+    meta_badges = [f'<span class="meta-badge">{_esc(mime)}</span>']
+    meta_badges.append(f'<span class="meta-badge">{len(data) // 1024} KB</span>')
 
-    # OCR
     try:
-        import pytesseract
         img = Image.open(io.BytesIO(data))
-        if img.mode not in ("L", "RGB"):
-            img = img.convert("RGB")
-
-        ocr_text = pytesseract.image_to_string(img, lang="eng")
-        if ocr_text.strip():
-            lines = [_esc(l) for l in ocr_text.strip().split("\n") if l.strip()]
-            parts.append(f'<div class="ocr-box"><strong>Extracted Text (OCR):</strong><br>{"<br>".join(lines)}</div>')
-    except ImportError:
-        parts.append('<p style="color:#94a3b8;font-size:0.85em;"><em>Tesseract not installed — OCR skipped.</em></p>')
+        meta_badges.append(f'<span class="meta-badge">{img.width} &times; {img.height} px</span>')
+        meta_badges.append(f'<span class="meta-badge">{img.mode} mode</span>')
     except Exception:
         pass
+
+    parts = [
+        f'<div class="meta-badge-bar">{"".join(meta_badges)}</div>',
+        f'<div class="doc-img-wrap">',
+        f'  <img src="{data_uri}" alt="{_esc(filename)}" style="max-width:100%;height:auto;border-radius:6px;">',
+        f'</div>'
+    ]
+
+    ocr_text = _run_ocr_image(data)
+    if ocr_text:
+        lines = [_esc(l) for l in ocr_text.split("\n") if l.strip()]
+        parts.append(
+            f'<div class="ocr-box">'
+            f'  <div class="ocr-title">Extracted Text (OCR)</div>'
+            f'  <div>{"<br>".join(lines)}</div>'
+            f'</div>'
+        )
 
     return wrap_html("\n".join(parts), filename)
 
 
-# ── 6. SVG ────────────────────────────────────────────────────────────────────
+# ── 6. SVG Converter ──────────────────────────────────────────────────────────
 
 def convert_svg(data: bytes, filename: str) -> str:
-    svg = data.decode("utf-8", errors="replace")
-    return wrap_html(f'<div style="text-align:center">{svg}</div>', filename)
+    data_uri = _to_base64_data_uri(data, "image/svg+xml")
+    body = (
+        f'<div class="doc-img-wrap" style="text-align:center;padding:16px;">\n'
+        f'  <img src="{data_uri}" alt="{_esc(filename)}" style="max-width:100%;height:auto;">\n'
+        f'</div>'
+    )
+    return wrap_html(body, filename)
 
 
-# ── 7. Markdown ───────────────────────────────────────────────────────────────
+# ── 7. Markdown Converter ─────────────────────────────────────────────────────
 
 def convert_markdown(data: bytes, filename: str) -> str:
     import markdown
     text = data.decode("utf-8", errors="replace")
-    html = markdown.markdown(text, extensions=["tables", "fenced_code", "codehilite", "toc", "nl2br", "sane_lists"])
+    html = markdown.markdown(
+        text,
+        extensions=["tables", "fenced_code", "codehilite", "toc", "nl2br", "sane_lists", "attr_list", "def_list"],
+    )
     return wrap_html(html, filename)
 
 
-# ── 8. CSV / TSV ──────────────────────────────────────────────────────────────
+# ── 8. CSV / TSV Converter ────────────────────────────────────────────────────
 
 def convert_csv(data: bytes, filename: str) -> str:
     text = data.decode("utf-8", errors="replace")
@@ -668,23 +1176,33 @@ def convert_csv(data: bytes, filename: str) -> str:
     if not rows:
         return wrap_html("<p><em>Empty file.</em></p>", filename)
 
-    parts = ["<table>"]
-    for ri, row in enumerate(rows):
-        tag = "th" if ri == 0 else "td"
-        parts.append("  <tr>" + "".join(f"<{tag}>{_esc(c.strip())}</{tag}>" for c in row) + "</tr>")
-    parts.append("</table>")
-    return wrap_html("\n".join(parts), filename)
+    tbl_html = _render_table_data(rows)
+    return wrap_html(f'<div class="doc-table-wrap">{tbl_html}</div>', filename)
 
 
-# ── 9. Plain Text ─────────────────────────────────────────────────────────────
+# ── 9. JSON Converter ─────────────────────────────────────────────────────────
+
+def convert_json(data: bytes, filename: str) -> str:
+    text = data.decode("utf-8", errors="replace")
+    try:
+        parsed = json.loads(text)
+        formatted = json.dumps(parsed, indent=2, ensure_ascii=False)
+    except Exception:
+        formatted = text
+    return wrap_html(f'<pre><code>{_esc(formatted)}</code></pre>', filename)
+
+
+# ── 10. XML Converter ─────────────────────────────────────────────────────────
+
+def convert_xml(data: bytes, filename: str) -> str:
+    text = data.decode("utf-8", errors="replace")
+    return wrap_html(f'<pre><code>{_esc(text)}</code></pre>', filename)
+
+
+# ── 11. Plain Text / Code ─────────────────────────────────────────────────────
 
 def convert_text(data: bytes, filename: str) -> str:
     text = data.decode("utf-8", errors="replace")
-    ext = Path(filename).suffix.lower()
-
-    if ext in (".json", ".xml", ".log"):
-        return wrap_html(f"<pre><code>{_esc(text)}</code></pre>", filename)
-
     paras = []
     for line in text.split("\n"):
         s = line.strip()
@@ -695,24 +1213,32 @@ def convert_text(data: bytes, filename: str) -> str:
     return wrap_html("\n".join(paras), filename)
 
 
-# ── 10. HTML Passthrough ──────────────────────────────────────────────────────
+# ── 12. Passthrough ───────────────────────────────────────────────────────────
 
 def convert_passthrough(data: bytes, filename: str) -> str:
     return data.decode("utf-8", errors="replace")
 
 
-# ─── Handler Dispatch ─────────────────────────────────────────────────────────
+# ─── Converter Registry ───────────────────────────────────────────────────────
 
 CONVERTERS = {
-    "pdf": convert_pdf, "docx": convert_docx, "pptx": convert_pptx,
-    "xlsx": convert_xlsx, "image": convert_image, "svg": convert_svg,
-    "markdown": convert_markdown, "csv": convert_csv, "text": convert_text,
+    "pdf": convert_pdf,
+    "docx": convert_docx,
+    "pptx": convert_pptx,
+    "xlsx": convert_xlsx,
+    "image": convert_image,
+    "svg": convert_svg,
+    "markdown": convert_markdown,
+    "csv": convert_csv,
+    "json": convert_json,
+    "xml": convert_xml,
+    "text": convert_text,
     "passthrough": convert_passthrough,
 }
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# LOCAL TEST PAGE (only served when LOCAL_RUN=true in .env)
+# LOCAL TESTING UI (Served when LOCAL_RUN=true)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 LOCAL_TEST_HTML = """<!DOCTYPE html>
@@ -720,243 +1246,312 @@ LOCAL_TEST_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Document-to-HTML Converter — Local Test</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <title>Document-to-HTML Studio</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: 'Inter', system-ui, sans-serif;
-      background: #0f0f1a;
+      font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+      background: #090d16;
       color: #e2e8f0;
       min-height: 100vh;
-      display: flex; flex-direction: column; align-items: center;
-      padding: 40px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 48px 20px;
     }
-    .header { text-align: center; margin-bottom: 32px; }
+    .header { text-align: center; margin-bottom: 36px; max-width: 680px; }
     .header h1 {
-      font-size: 2.2rem; font-weight: 800;
-      background: linear-gradient(135deg, #6366f1, #06b6d4);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-      margin-bottom: 6px;
+      font-size: 2.4rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #818cf8 0%, #38bdf8 50%, #34d399 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+      letter-spacing: -0.5px;
     }
-    .header p { color: #94a3b8; font-size: 0.95rem; }
-    .badge-row { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 14px; }
+    .header p { color: #94a3b8; font-size: 1rem; line-height: 1.5; }
+    .badge-bar { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 16px; }
     .badge {
-      font-size: 0.7rem; font-weight: 600; padding: 3px 10px;
-      border-radius: 999px; background: rgba(99,102,241,0.15);
-      color: #818cf8; border: 1px solid rgba(99,102,241,0.25);
-      text-transform: uppercase; letter-spacing: 0.4px;
+      font-size: 0.72rem; font-weight: 600; padding: 4px 10px;
+      border-radius: 999px; background: rgba(129,140,248,0.12);
+      color: #a5b4fc; border: 1px solid rgba(129,140,248,0.25);
+      text-transform: uppercase; letter-spacing: 0.5px;
     }
-    .card {
-      width: 100%; max-width: 720px;
-      background: rgba(30,30,50,0.7); backdrop-filter: blur(16px);
-      border: 1px solid rgba(99,102,241,0.2); border-radius: 16px;
-      padding: 32px; margin-bottom: 28px;
+    .app-card {
+      width: 100%; max-width: 820px;
+      background: rgba(17, 24, 39, 0.75);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      padding: 36px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+      margin-bottom: 30px;
     }
-    .drop-zone {
-      border: 2px dashed rgba(99,102,241,0.4); border-radius: 14px;
-      padding: 48px 24px; text-align: center; cursor: pointer;
-      transition: all 0.3s ease; position: relative;
+    .drop-box {
+      border: 2px dashed rgba(129,140,248,0.35);
+      border-radius: 16px;
+      padding: 48px 24px;
+      text-align: center;
+      cursor: pointer;
+      position: relative;
+      transition: all 0.25s ease;
+      background: rgba(255, 255, 255, 0.02);
     }
-    .drop-zone:hover, .drop-zone.active {
-      border-color: #6366f1; background: rgba(99,102,241,0.08);
-      box-shadow: 0 0 30px rgba(99,102,241,0.1);
+    .drop-box:hover, .drop-box.dragover {
+      border-color: #38bdf8;
+      background: rgba(56,189,248,0.06);
+      transform: translateY(-2px);
     }
-    .drop-zone svg { margin: 0 auto 14px; display: block; opacity: 0.7; }
-    .drop-zone p { color: #94a3b8; font-size: 0.9rem; }
-    .drop-zone .drop-label { font-weight: 600; color: #c7d2fe; font-size: 1rem; margin-bottom: 4px; }
-    .drop-zone input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-    .btn-convert {
-      display: block; width: 100%; padding: 14px;
-      background: linear-gradient(135deg, #6366f1, #4f46e5);
-      color: #fff; font-weight: 700; font-size: 1rem;
-      border: none; border-radius: 10px; cursor: pointer;
-      margin-top: 18px; transition: all 0.2s ease;
+    .drop-box input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .drop-icon { font-size: 2.8rem; margin-bottom: 12px; display: inline-block; }
+    .drop-title { font-size: 1.15rem; font-weight: 700; color: #f8fafc; margin-bottom: 4px; }
+    .drop-sub { color: #94a3b8; font-size: 0.88rem; }
+    .file-pill {
+      margin-top: 16px;
+      padding: 12px 18px;
+      background: rgba(56,189,248,0.12);
+      border: 1px solid rgba(56,189,248,0.25);
+      border-radius: 10px;
+      font-size: 0.9rem;
+      color: #bae6fd;
+      display: none;
+      align-items: center;
+      justify-content: space-between;
     }
-    .btn-convert:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(99,102,241,0.4); }
-    .btn-convert:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
-    .file-info {
-      margin-top: 14px; padding: 10px 14px;
-      background: rgba(99,102,241,0.1); border-radius: 8px;
-      font-size: 0.82rem; color: #c7d2fe; display: none;
+    .btn-action {
+      display: block; width: 100%; padding: 15px;
+      background: linear-gradient(135deg, #6366f1, #3b82f6);
+      color: #ffffff; font-weight: 700; font-size: 1rem;
+      border: none; border-radius: 12px; cursor: pointer;
+      margin-top: 20px; transition: all 0.2s ease;
+      box-shadow: 0 4px 16px rgba(99,102,241,0.35);
     }
-    .file-info .fname { font-weight: 600; }
-    .status {
-      text-align: center; margin-top: 14px; font-size: 0.85rem; color: #94a3b8; display: none;
+    .btn-action:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(99,102,241,0.5); }
+    .btn-action:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+    .status-msg {
+      text-align: center; margin-top: 16px; font-size: 0.9rem; color: #94a3b8; display: none;
     }
-    .status.error { color: #f87171; }
-    .status.success { color: #34d399; }
-    .result-card { display: none; }
-    .tab-row { display: flex; gap: 0; margin-bottom: 0; }
+    .status-msg.error { color: #f87171; }
+    .status-msg.success { color: #34d399; }
+    .preview-card {
+      width: 100%; max-width: 980px;
+      background: rgba(17, 24, 39, 0.75);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      padding: 24px;
+      display: none;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+    }
+    .preview-toolbar {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 12px; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.08);
+      padding-bottom: 14px;
+    }
+    .tab-group { display: flex; gap: 4px; background: rgba(0,0,0,0.3); padding: 4px; border-radius: 8px; }
     .tab-btn {
-      flex: 1; padding: 10px; text-align: center;
-      font-size: 0.82rem; font-weight: 600; cursor: pointer;
-      background: rgba(30,30,50,0.5); color: #94a3b8;
-      border: 1px solid rgba(99,102,241,0.15); border-bottom: none;
-      transition: all 0.2s ease;
+      padding: 6px 14px; border-radius: 6px; border: none; background: transparent;
+      color: #94a3b8; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+      transition: all 0.15s ease;
     }
-    .tab-btn:first-child { border-radius: 10px 0 0 0; }
-    .tab-btn:last-child { border-radius: 0 10px 0 0; }
-    .tab-btn.active { background: rgba(99,102,241,0.15); color: #c7d2fe; }
-    .tab-content {
-      border: 1px solid rgba(99,102,241,0.15); border-radius: 0 0 10px 10px;
-      min-height: 300px; max-height: 600px; overflow: auto;
-      background: #fff;
+    .tab-btn.active { background: #38bdf8; color: #090d16; }
+    .action-group { display: flex; gap: 8px; }
+    .tool-btn {
+      padding: 7px 14px; border-radius: 8px; font-size: 0.82rem; font-weight: 600;
+      border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04);
+      color: #f1f5f9; cursor: pointer; transition: all 0.2s ease;
     }
-    .tab-content.source-tab {
-      background: #1e1e2e; color: #e2e8f0;
-      padding: 16px; font-family: 'Cascadia Code', monospace;
-      font-size: 0.78rem; white-space: pre-wrap; word-break: break-all;
+    .tool-btn:hover { background: rgba(255,255,255,0.1); }
+    .frame-container {
+      width: 100%; height: 640px; border: none; border-radius: 12px;
+      background: #ffffff;
     }
-    .tab-content iframe { width: 100%; height: 500px; border: none; }
-    .btn-row { display: flex; gap: 10px; margin-top: 14px; }
-    .btn-dl {
-      flex: 1; padding: 10px; text-align: center;
-      border-radius: 8px; font-weight: 600; font-size: 0.85rem;
-      cursor: pointer; border: none; transition: all 0.2s ease;
+    .source-container {
+      width: 100%; height: 640px; border-radius: 12px;
+      background: #0b0f19; color: #a5f3fc; padding: 18px;
+      font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;
+      overflow: auto; white-space: pre-wrap; display: none;
     }
-    .btn-dl.primary { background: #6366f1; color: #fff; }
-    .btn-dl.primary:hover { background: #4f46e5; }
-    .btn-dl.secondary { background: rgba(99,102,241,0.12); color: #c7d2fe; border: 1px solid rgba(99,102,241,0.25); }
-    .btn-dl.secondary:hover { background: rgba(99,102,241,0.2); }
-    .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #fff4; border-top-color: #fff; border-radius: 50%; animation: spin 0.6s linear infinite; vertical-align: middle; margin-right: 6px; }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    .metrics-bar {
+      display: flex; gap: 16px; font-size: 0.82rem; color: #94a3b8; margin-top: 14px;
+    }
   </style>
 </head>
 <body>
   <div class="header">
-    <h1>Document → HTML</h1>
-    <p>Accurate universal document-to-HTML converter API — Local Test Mode</p>
-    <div class="badge-row">
-      <span class="badge">PDF</span><span class="badge">DOCX</span><span class="badge">PPTX</span>
-      <span class="badge">XLSX</span><span class="badge">PNG / JPG</span><span class="badge">SVG</span>
-      <span class="badge">Markdown</span><span class="badge">CSV</span><span class="badge">TXT</span>
+    <h1>Document-to-HTML Studio</h1>
+    <p>Convert PDF, Word, PowerPoint, Excel, Images, Markdown & CSV into accurate, self-contained HTML with embedded Base64 images.</p>
+    <div class="badge-bar">
+      <span class="badge">PDF (PyMuPDF)</span>
+      <span class="badge">Word (DOCX)</span>
+      <span class="badge">PowerPoint (PPTX)</span>
+      <span class="badge">Excel (XLSX)</span>
+      <span class="badge">Images (Base64 + OCR)</span>
+      <span class="badge">Markdown</span>
+      <span class="badge">CSV / TSV</span>
     </div>
   </div>
 
-  <div class="card">
-    <div class="drop-zone" id="dropZone">
-      <input type="file" id="fileInput" accept=".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.png,.jpg,.jpeg,.webp,.bmp,.tiff,.tif,.gif,.svg,.md,.csv,.tsv,.txt,.log,.json,.xml,.html,.htm">
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-      <p class="drop-label">Drop your file here or click to browse</p>
-      <p>Supports PDF, DOCX, PPTX, XLSX, Images, Markdown, CSV, TXT</p>
+  <div class="app-card">
+    <div class="drop-box" id="dropBox">
+      <input type="file" id="fileInput" accept=".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.png,.jpg,.jpeg,.webp,.bmp,.tiff,.gif,.svg,.md,.csv,.tsv,.json,.xml,.txt,.log,.html">
+      <div class="drop-icon">📄</div>
+      <div class="drop-title">Drop your document here</div>
+      <div class="drop-sub">or click to browse files from your computer</div>
     </div>
-    <div class="file-info" id="fileInfo">
-      Selected: <span class="fname" id="fileName"></span> — <span id="fileSize"></span>
+
+    <div class="file-pill" id="filePill">
+      <span id="fileNameDisplay">file.pdf</span>
+      <span id="fileSizeDisplay" style="opacity:0.7;">0 KB</span>
     </div>
-    <button class="btn-convert" id="btnConvert" disabled>Convert to HTML</button>
-    <div class="status" id="status"></div>
+
+    <button class="btn-action" id="btnConvert" disabled>Convert to HTML</button>
+    <div class="status-msg" id="statusMsg"></div>
   </div>
 
-  <div class="card result-card" id="resultCard">
-    <div class="tab-row">
-      <div class="tab-btn active" data-tab="preview" id="tabPreview">HTML Preview</div>
-      <div class="tab-btn" data-tab="source" id="tabSource">Source Code</div>
+  <div class="preview-card" id="previewCard">
+    <div class="preview-toolbar">
+      <div class="tab-group">
+        <button class="tab-btn active" id="tabPreview">Rendered View</button>
+        <button class="tab-btn" id="tabSource">HTML Source</button>
+      </div>
+      <div class="action-group">
+        <button class="tool-btn" id="btnCopy">Copy HTML</button>
+        <button class="tool-btn" id="btnDownload">Download .html</button>
+      </div>
     </div>
-    <div class="tab-content" id="previewPane"><iframe id="previewFrame"></iframe></div>
-    <div class="tab-content source-tab" id="sourcePane" style="display:none"></div>
-    <div class="btn-row">
-      <button class="btn-dl primary" id="btnDownload">Download HTML</button>
-      <button class="btn-dl secondary" id="btnCopy">Copy Source</button>
-    </div>
+
+    <iframe class="frame-container" id="previewIframe"></iframe>
+    <pre class="source-container" id="sourceView"></pre>
+
+    <div class="metrics-bar" id="metricsBar"></div>
   </div>
 
-<script>
-const dropZone = document.getElementById('dropZone');
-const fileInput = document.getElementById('fileInput');
-const fileInfo = document.getElementById('fileInfo');
-const fileName = document.getElementById('fileName');
-const fileSize = document.getElementById('fileSize');
-const btnConvert = document.getElementById('btnConvert');
-const status = document.getElementById('status');
-const resultCard = document.getElementById('resultCard');
-const previewFrame = document.getElementById('previewFrame');
-const sourcePane = document.getElementById('sourcePane');
+  <script>
+    const dropBox = document.getElementById('dropBox');
+    const fileInput = document.getElementById('fileInput');
+    const filePill = document.getElementById('filePill');
+    const fileNameDisplay = document.getElementById('fileNameDisplay');
+    const fileSizeDisplay = document.getElementById('fileSizeDisplay');
+    const btnConvert = document.getElementById('btnConvert');
+    const statusMsg = document.getElementById('statusMsg');
+    const previewCard = document.getElementById('previewCard');
+    const previewIframe = document.getElementById('previewIframe');
+    const sourceView = document.getElementById('sourceView');
+    const metricsBar = document.getElementById('metricsBar');
 
-let selectedFile = null;
-let resultHtml = '';
+    let currentFile = null;
+    let convertedHtml = '';
 
-// Drag-and-drop
-['dragenter','dragover'].forEach(e => dropZone.addEventListener(e, ev => { ev.preventDefault(); dropZone.classList.add('active'); }));
-['dragleave','drop'].forEach(e => dropZone.addEventListener(e, ev => { ev.preventDefault(); dropZone.classList.remove('active'); }));
-dropZone.addEventListener('drop', ev => { if(ev.dataTransfer.files.length) { fileInput.files = ev.dataTransfer.files; handleFile(ev.dataTransfer.files[0]); }});
-fileInput.addEventListener('change', () => { if(fileInput.files.length) handleFile(fileInput.files[0]); });
+    ['dragenter', 'dragover'].forEach(name => {
+      dropBox.addEventListener(name, (e) => { e.preventDefault(); dropBox.classList.add('dragover'); });
+    });
+    ['dragleave', 'drop'].forEach(name => {
+      dropBox.addEventListener(name, (e) => { e.preventDefault(); dropBox.classList.remove('dragover'); });
+    });
 
-function handleFile(f) {
-  selectedFile = f;
-  fileName.textContent = f.name;
-  fileSize.textContent = (f.size / 1024).toFixed(1) + ' KB';
-  fileInfo.style.display = 'block';
-  btnConvert.disabled = false;
-  status.style.display = 'none';
-  resultCard.style.display = 'none';
-}
+    dropBox.addEventListener('drop', (e) => {
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        handleFileSelect(e.dataTransfer.files[0]);
+      }
+    });
 
-btnConvert.addEventListener('click', async () => {
-  if(!selectedFile) return;
-  btnConvert.disabled = true;
-  btnConvert.innerHTML = '<span class="spinner"></span>Converting...';
-  status.className = 'status'; status.style.display = 'block';
-  status.textContent = 'Processing ' + selectedFile.name + '...';
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files && e.target.files[0]) {
+        handleFileSelect(e.target.files[0]);
+      }
+    });
 
-  const fd = new FormData();
-  fd.append('file', selectedFile);
+    function handleFileSelect(file) {
+      currentFile = file;
+      fileNameDisplay.textContent = file.name;
+      fileSizeDisplay.textContent = (file.size / 1024).toFixed(1) + ' KB';
+      filePill.style.display = 'flex';
+      btnConvert.disabled = false;
+      statusMsg.style.display = 'none';
+    }
 
-  try {
-    const res = await fetch('/convert', { method: 'POST', body: fd });
-    const json = await res.json();
-    if(!res.ok) throw new Error(json.detail || 'Conversion failed');
+    btnConvert.addEventListener('click', async () => {
+      if (!currentFile) return;
+      btnConvert.disabled = true;
+      btnConvert.textContent = 'Converting...';
+      statusMsg.className = 'status-msg';
+      statusMsg.textContent = 'Processing document accurately...';
+      statusMsg.style.display = 'block';
 
-    resultHtml = json.html;
-    // Preview
-    previewFrame.srcdoc = resultHtml;
-    // Source
-    sourcePane.textContent = resultHtml;
-    resultCard.style.display = 'block';
-    status.className = 'status success';
-    status.textContent = 'Converted successfully! (' + json.size_bytes + ' bytes processed)';
-  } catch(err) {
-    status.className = 'status error';
-    status.textContent = 'Error: ' + err.message;
-  }
-  btnConvert.disabled = false;
-  btnConvert.textContent = 'Convert to HTML';
-});
+      const startTime = performance.now();
+      const formData = new FormData();
+      formData.append('file', currentFile);
 
-// Tabs
-document.getElementById('tabPreview').addEventListener('click', () => {
-  document.getElementById('tabPreview').classList.add('active');
-  document.getElementById('tabSource').classList.remove('active');
-  document.getElementById('previewPane').style.display = 'block';
-  sourcePane.style.display = 'none';
-});
-document.getElementById('tabSource').addEventListener('click', () => {
-  document.getElementById('tabSource').classList.add('active');
-  document.getElementById('tabPreview').classList.remove('active');
-  sourcePane.style.display = 'block';
-  document.getElementById('previewPane').style.display = 'none';
-});
+      try {
+        const resp = await fetch('/convert', { method: 'POST', body: formData });
+        const data = await resp.json();
+        const duration = Math.round(performance.now() - startTime);
 
-// Download
-document.getElementById('btnDownload').addEventListener('click', () => {
-  if(!resultHtml) return;
-  const blob = new Blob([resultHtml], { type: 'text/html' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = (selectedFile?.name || 'document').replace(/\\.[^.]+$/, '') + '.html';
-  a.click();
-});
+        if (!resp.ok || !data.success) {
+          throw new Error(data.detail || 'Conversion failed');
+        }
 
-// Copy
-document.getElementById('btnCopy').addEventListener('click', () => {
-  if(!resultHtml) return;
-  navigator.clipboard.writeText(resultHtml).then(() => {
-    const btn = document.getElementById('btnCopy');
-    btn.textContent = 'Copied!';
-    setTimeout(() => btn.textContent = 'Copy Source', 1500);
-  });
-});
-</script>
+        convertedHtml = data.html;
+        previewIframe.srcdoc = convertedHtml;
+        sourceView.textContent = convertedHtml;
+
+        const imgCount = (convertedHtml.match(/data:image/g) || []).length;
+        const tblCount = (convertedHtml.match(/<table/g) || []).length;
+
+        metricsBar.innerHTML = `
+          <span>⚡ Time: <strong>${duration} ms</strong></span>
+          <span>🖼️ Base64 Images: <strong>${imgCount}</strong></span>
+          <span>📊 Tables: <strong>${tblCount}</strong></span>
+          <span>📁 Size: <strong>${(data.size_bytes / 1024).toFixed(1)} KB</strong></span>
+        `;
+
+        previewCard.style.display = 'block';
+        statusMsg.className = 'status-msg success';
+        statusMsg.textContent = `Conversion successful in ${duration} ms!`;
+        previewCard.scrollIntoView({ behavior: 'smooth' });
+      } catch (err) {
+        statusMsg.className = 'status-msg error';
+        statusMsg.textContent = 'Error: ' + err.message;
+      } finally {
+        btnConvert.disabled = false;
+        btnConvert.textContent = 'Convert to HTML';
+      }
+    });
+
+    document.getElementById('tabPreview').addEventListener('click', () => {
+      document.getElementById('tabPreview').classList.add('active');
+      document.getElementById('tabSource').classList.remove('active');
+      previewIframe.style.display = 'block';
+      sourceView.style.display = 'none';
+    });
+
+    document.getElementById('tabSource').addEventListener('click', () => {
+      document.getElementById('tabSource').classList.add('active');
+      document.getElementById('tabPreview').classList.remove('active');
+      sourceView.style.display = 'block';
+      previewIframe.style.display = 'none';
+    });
+
+    document.getElementById('btnCopy').addEventListener('click', () => {
+      if (!convertedHtml) return;
+      navigator.clipboard.writeText(convertedHtml).then(() => {
+        const btn = document.getElementById('btnCopy');
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = 'Copy HTML', 1500);
+      });
+    });
+
+    document.getElementById('btnDownload').addEventListener('click', () => {
+      if (!convertedHtml) return;
+      const blob = new Blob([convertedHtml], { type: 'text/html' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = (currentFile?.name || 'document').replace(/\\.[^.]+$/, '') + '.html';
+      a.click();
+    });
+  </script>
 </body>
 </html>"""
 
@@ -965,42 +1560,64 @@ document.getElementById('btnCopy').addEventListener('click', () => {
 # API ENDPOINTS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-
 @app.get("/")
 async def root():
     """
-    LOCAL_RUN=true  → serves the browser upload/test page
-    LOCAL_RUN=false → returns JSON health-check
+    LOCAL_RUN=true  → serves the interactive drag-and-drop web test page
+    LOCAL_RUN=false → returns JSON health check (API-only mode)
     """
     if LOCAL_RUN:
         return HTMLResponse(content=LOCAL_TEST_HTML)
 
     return {
         "service": "Document-to-HTML API",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "status": "running",
         "docs": "/docs",
         "mode": "api-only",
-        "supported_formats": list(EXTENSION_MAP.keys()),
+        "ocr_available": TESSERACT_AVAILABLE,
+        "supported_formats": sorted(list(EXTENSION_MAP.keys())),
+    }
+
+
+@app.get("/health")
+async def health_check():
+    """JSON health-check endpoint regardless of LOCAL_RUN setting."""
+    return {
+        "status": "healthy",
+        "service": "Document-to-HTML API",
+        "version": "2.1.0",
+        "ocr_available": TESSERACT_AVAILABLE,
+        "max_upload_mb": MAX_UPLOAD_BYTES // (1024 * 1024),
     }
 
 
 @app.post("/convert")
 async def convert_document(file: UploadFile = File(...)):
-    """Upload any document and receive its accurate HTML representation."""
+    """
+    Upload any document and receive a complete, self-contained HTML document
+    with embedded Base64 images and responsive CSS.
+    """
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided.")
 
     data = await file.read()
     if len(data) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail=f"File too large. Max {MAX_UPLOAD_BYTES // (1024*1024)} MB.")
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum size is {MAX_UPLOAD_BYTES // (1024 * 1024)} MB."
+        )
     if len(data) == 0:
-        raise HTTPException(status_code=400, detail="File is empty.")
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
     ext = Path(file.filename).suffix.lower()
     handler_key = EXTENSION_MAP.get(ext)
     if not handler_key:
-        raise HTTPException(status_code=415, detail=f"Unsupported: '{ext}'. Supported: {', '.join(sorted(EXTENSION_MAP.keys()))}")
+        supported = ", ".join(sorted(EXTENSION_MAP.keys()))
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported file extension '{ext}'. Supported: {supported}"
+        )
 
     try:
         html = CONVERTERS[handler_key](data, file.filename)
@@ -1018,21 +1635,24 @@ async def convert_document(file: UploadFile = File(...)):
 
 
 @app.post("/convert/raw")
-async def convert_raw(file: UploadFile = File(...)):
-    """Same as /convert but returns only the inner HTML (no <html>/<head> wrapper)."""
+async def convert_document_raw(file: UploadFile = File(...)):
+    """
+    Upload any document and receive ONLY the inner HTML content
+    (without <html>, <head>, or <body> tags) suitable for embedding.
+    """
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided.")
 
     data = await file.read()
     if len(data) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="File too large.")
+        raise HTTPException(status_code=413, detail="File exceeds upload limit.")
     if len(data) == 0:
-        raise HTTPException(status_code=400, detail="File is empty.")
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
     ext = Path(file.filename).suffix.lower()
     handler_key = EXTENSION_MAP.get(ext)
     if not handler_key:
-        raise HTTPException(status_code=415, detail=f"Unsupported: '{ext}'")
+        raise HTTPException(status_code=415, detail=f"Unsupported format '{ext}'.")
 
     try:
         html = CONVERTERS[handler_key](data, file.filename)
@@ -1040,22 +1660,27 @@ async def convert_raw(file: UploadFile = File(...)):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Conversion failed: {str(e)}")
 
-    # Strip outer wrapper
+    # Strip outer document wrapper to return only inner HTML
     marker_start = '<div class="doc-root">'
     marker_end = "</div>\n</body>"
     i = html.find(marker_start)
     j = html.rfind(marker_end)
     inner = html[i + len(marker_start):j].strip() if i != -1 and j != -1 else html
 
-    return JSONResponse(content={"success": True, "filename": file.filename, "html": inner})
+    return JSONResponse(content={
+        "success": True,
+        "filename": file.filename,
+        "html": inner,
+    })
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 if __name__ == "__main__":
     import uvicorn
-    print(f"\\n  🚀 Document-to-HTML API v2.0")
-    print(f"  Mode: {'LOCAL (test page at /)' if LOCAL_RUN else 'API-only'}")
+    print(f"\n  🚀 Document-to-HTML API v2.1")
+    print(f"  Mode: {'LOCAL TEST UI at http://localhost:' + str(PORT) if LOCAL_RUN else 'HEADLESS API-ONLY'}")
     print(f"  Port: {PORT}")
-    print(f"  Docs: http://localhost:{PORT}/docs\\n")
+    print(f"  Docs: http://localhost:{PORT}/docs")
+    print(f"  OCR (Tesseract): {'Available' if TESSERACT_AVAILABLE else 'Not found (optional)'}\n")
     uvicorn.run("app:app", host="0.0.0.0", port=PORT, reload=True)

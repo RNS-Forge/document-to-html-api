@@ -85,21 +85,32 @@ curl -X POST http://localhost:8000/convert/raw \
 
 Once running, visit **http://localhost:8000/docs** for the Swagger UI where you can test uploads directly in the browser.
 
-## Architecture
+## Architecture & Accuracy Highlights
 
 ```
 POST /convert
   → Detect file extension
-  → Route to converter (pdf / docx / pptx / xlsx / image / markdown / csv / text)
+  → Route to converter (pdf / docx / pptx / xlsx / image / markdown / csv / json / text)
+  → Process elements in visual reading order
+  → Convert all images to Base64 data URIs
   → Return { success, filename, html }
 ```
 
-Each converter produces semantic, styled HTML with:
-- **Headings** detected by font size (PDF) or document structure (DOCX/PPTX)
-- **Tables** preserved from PDFs, DOCX, PPTX, XLSX, and CSV
-- **Images** embedded as inline base64 data URIs (zero external dependencies)
-- **OCR** via Tesseract for scanned PDFs and images
-- **Shared CSS** for consistent, clean rendering across all formats
+Each converter produces pixel-accurate, self-contained semantic HTML:
+- **Base64 Everywhere**: All embedded images, pictures, and graphics are converted directly into Base64 data URIs (`data:image/...;base64,...`) — zero broken images or external dependencies.
+- **PDF Visual Ordering**: Elements (headings, paragraphs, tables, images) are unified and sorted top-to-bottom and left-to-right (`y0`, `x0`) matching the exact visual layout. Tables have bounding box exclusion to prevent duplicate jumbled text.
+- **DOCX Fidelity**: Mammoth semantic style mapping with automatic fallback to `python-docx` for complex documents.
+- **PPTX Slide Cards**: Recursive shape hierarchy (including nested groups), run-level typography, table extraction, and collapsible speaker notes.
+- **XLSX Multi-Sheet**: Interactive tab navigation for workbooks, cell formatting, merged cell (`rowspan`/`colspan`) handling, background colors, and embedded graphics.
+- **Images**: Crisp responsive previews with metadata badges and optional Tesseract OCR for text recognition.
+
+## Running Tests
+
+Run the complete test suite covering all document formats and API endpoints:
+
+```bash
+python test_converters.py
+```
 
 ## License
 
