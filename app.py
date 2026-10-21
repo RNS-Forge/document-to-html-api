@@ -33,6 +33,8 @@ from typing import Optional, List, Dict, Any, Tuple
 from dotenv import load_dotenv
 load_dotenv()
 
+from document_gan import doc_gan
+
 from fastapi import FastAPI, File, UploadFile, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse
@@ -1684,8 +1686,11 @@ def convert_image(data: bytes, filename: str) -> str:
     if any(k in upper_text for k in ("AR NO", "DISPOSAL", "COLLECTION", "PHARMACHEM", "BILLS NOT UNDER LC", "CUSTOMS DETAILS")):
         return wrap_html(_build_bank_collection_form(img_pil), filename)
 
-    # ── Check 3: General Document with Tables / Forms / Text ──
+    # ── Check 3: DocGAN Universal Synthesis & Discriminator Refinement ──
     if len(ocr_text.strip()) > 15 or _has_document_structure(data):
+        gan_html, eval_res = doc_gan.convert(ocr_text, img_pil=img_pil, img_bytes=data)
+        if eval_res.get("passed", False) or eval_res.get("realism_score", 0) >= 0.88:
+            return gan_html
         return wrap_html(_build_generic_document_html(img_pil, ocr_text, data), filename)
 
     # ── Check 4: Standalone Graphic / Photo (Non-Document) ──

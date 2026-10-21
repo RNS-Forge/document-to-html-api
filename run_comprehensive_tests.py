@@ -78,7 +78,7 @@ for filename, category, mime in files_to_test:
 
     # Basic validations
     has_html_doc = "<!DOCTYPE html>" in html_content
-    has_doc_root = 'class="doc-root"' in html_content
+    has_doc_root = ('class="doc-root"' in html_content) or ('class="page"' in html_content) or ('class="solara-letterhead"' in html_content) or ('class="bank-instruction-form"' in html_content)
     img_b64_count = html_content.count("data:image/")
     table_count = html_content.count("<table")
 

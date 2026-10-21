@@ -1,0 +1,19 @@
+{
+  "model_name": "DocGAN-v2.5-Universal",
+  "epochs_trained": 50,
+  "discriminator_weights": {
+    "canvas_a4": 0.331545889377594,
+    "structural_tags": 0.277847021818161,
+    "typography": 0.249806746840477,
+    "logo_isolation": 0.0905325785279274,
+    "content_fidelity": 0.050267793238162994
+  },
+  "realism_threshold": 0.9,
+  "gold_standard_templates": [
+    "Developer Resume.html",
+    "Communication Resume.html",
+    "FSD Resume.html",
+    "Manufacturing.html"
+  ],
+  "training_accuracy": 1.0
+}

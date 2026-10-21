@@ -1,0 +1,808 @@
+{
+  "total_documents": 50,
+  "all_passed": true,
+  "average_realism_score": 0.955284,
+  "total_time_seconds": 2.02,
+  "results": [
+    {
+      "index": 1,
+      "id": "doc_01",
+      "filename": "resume_alex_rivera.png",
+      "category": "Resume / CV",
+      "realism_score": 1.0,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 1.0
+      },
+      "output_html": "gan_test_outputs\\doc_01_resume_alex_rivera.html",
+      "status": "PASS"
+    },
+    {
+      "index": 2,
+      "id": "doc_02",
+      "filename": "resume_jordan_lee.png",
+      "category": "Resume / CV",
+      "realism_score": 1.0,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 1.0
+      },
+      "output_html": "gan_test_outputs\\doc_02_resume_jordan_lee.html",
+      "status": "PASS"
+    },
+    {
+      "index": 3,
+      "id": "doc_03",
+      "filename": "resume_taylor_reed.png",
+      "category": "Resume / CV",
+      "realism_score": 0.9662,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.775
+      },
+      "output_html": "gan_test_outputs\\doc_03_resume_taylor_reed.html",
+      "status": "PASS"
+    },
+    {
+      "index": 4,
+      "id": "doc_04",
+      "filename": "resume_morgan_chen.png",
+      "category": "Resume / CV",
+      "realism_score": 0.97,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.8
+      },
+      "output_html": "gan_test_outputs\\doc_04_resume_morgan_chen.html",
+      "status": "PASS"
+    },
+    {
+      "index": 5,
+      "id": "doc_05",
+      "filename": "resume_elena_rostova.png",
+      "category": "Resume / CV",
+      "realism_score": 1.0,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 1.0
+      },
+      "output_html": "gan_test_outputs\\doc_05_resume_elena_rostova.html",
+      "status": "PASS"
+    },
+    {
+      "index": 6,
+      "id": "doc_06",
+      "filename": "resume_david_kim.png",
+      "category": "Resume / CV",
+      "realism_score": 1.0,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 1.0
+      },
+      "output_html": "gan_test_outputs\\doc_06_resume_david_kim.html",
+      "status": "PASS"
+    },
+    {
+      "index": 7,
+      "id": "doc_07",
+      "filename": "resume_priya_sharma.png",
+      "category": "Resume / CV",
+      "realism_score": 1.0,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 1.0
+      },
+      "output_html": "gan_test_outputs\\doc_07_resume_priya_sharma.html",
+      "status": "PASS"
+    },
+    {
+      "index": 8,
+      "id": "doc_08",
+      "filename": "resume_marcus_vance.png",
+      "category": "Resume / CV",
+      "realism_score": 1.0,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 1.0
+      },
+      "output_html": "gan_test_outputs\\doc_08_resume_marcus_vance.html",
+      "status": "PASS"
+    },
+    {
+      "index": 9,
+      "id": "doc_09",
+      "filename": "resume_sophia_lin.png",
+      "category": "Resume / CV",
+      "realism_score": 1.0,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 1.0
+      },
+      "output_html": "gan_test_outputs\\doc_09_resume_sophia_lin.html",
+      "status": "PASS"
+    },
+    {
+      "index": 10,
+      "id": "doc_10",
+      "filename": "resume_carlos_mendoza.png",
+      "category": "Resume / CV",
+      "realism_score": 1.0,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 1.0
+      },
+      "output_html": "gan_test_outputs\\doc_10_resume_carlos_mendoza.html",
+      "status": "PASS"
+    },
+    {
+      "index": 11,
+      "id": "doc_11",
+      "filename": "resume_rachel_green.png",
+      "category": "Resume / CV",
+      "realism_score": 1.0,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 1.0
+      },
+      "output_html": "gan_test_outputs\\doc_11_resume_rachel_green.html",
+      "status": "PASS"
+    },
+    {
+      "index": 12,
+      "id": "doc_12",
+      "filename": "resume_vikram_patel.png",
+      "category": "Resume / CV",
+      "realism_score": 1.0,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 1.0
+      },
+      "output_html": "gan_test_outputs\\doc_12_resume_vikram_patel.html",
+      "status": "PASS"
+    },
+    {
+      "index": 13,
+      "id": "doc_13",
+      "filename": "resume_sarah_jenkins.png",
+      "category": "Resume / CV",
+      "realism_score": 1.0,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 1.0
+      },
+      "output_html": "gan_test_outputs\\doc_13_resume_sarah_jenkins.html",
+      "status": "PASS"
+    },
+    {
+      "index": 14,
+      "id": "doc_14",
+      "filename": "resume_kevin_o'connor.png",
+      "category": "Resume / CV",
+      "realism_score": 0.9962,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.975
+      },
+      "output_html": "gan_test_outputs\\doc_14_resume_kevin_o'connor.html",
+      "status": "PASS"
+    },
+    {
+      "index": 15,
+      "id": "doc_15",
+      "filename": "resume_liam_davies.png",
+      "category": "Resume / CV",
+      "realism_score": 0.9888,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.925
+      },
+      "output_html": "gan_test_outputs\\doc_15_resume_liam_davies.html",
+      "status": "PASS"
+    },
+    {
+      "index": 16,
+      "id": "doc_16",
+      "filename": "invoice_tech_consulting_monthly_retainer.png",
+      "category": "Invoice",
+      "realism_score": 0.9363,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.575
+      },
+      "output_html": "gan_test_outputs\\doc_16_invoice_tech_consulting_monthly_retainer.html",
+      "status": "PASS"
+    },
+    {
+      "index": 17,
+      "id": "doc_17",
+      "filename": "invoice_aws_cloud_infrastructure_bill.png",
+      "category": "Invoice",
+      "realism_score": 0.9363,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.575
+      },
+      "output_html": "gan_test_outputs\\doc_17_invoice_aws_cloud_infrastructure_bill.html",
+      "status": "PASS"
+    },
+    {
+      "index": 18,
+      "id": "doc_18",
+      "filename": "invoice_pharmaceutical_lab_supplies_invoice.png",
+      "category": "Invoice",
+      "realism_score": 0.9363,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.575
+      },
+      "output_html": "gan_test_outputs\\doc_18_invoice_pharmaceutical_lab_supplies_invoice.html",
+      "status": "PASS"
+    },
+    {
+      "index": 19,
+      "id": "doc_19",
+      "filename": "invoice_hardware_server_procurement_bill.png",
+      "category": "Invoice",
+      "realism_score": 0.9363,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.575
+      },
+      "output_html": "gan_test_outputs\\doc_19_invoice_hardware_server_procurement_bill.html",
+      "status": "PASS"
+    },
+    {
+      "index": 20,
+      "id": "doc_20",
+      "filename": "invoice_digital_marketing_campaign_invoice.png",
+      "category": "Invoice",
+      "realism_score": 0.9363,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.575
+      },
+      "output_html": "gan_test_outputs\\doc_20_invoice_digital_marketing_campaign_invoice.html",
+      "status": "PASS"
+    },
+    {
+      "index": 21,
+      "id": "doc_21",
+      "filename": "invoice_legal_advisory_retainer_statement.png",
+      "category": "Invoice",
+      "realism_score": 0.9363,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.575
+      },
+      "output_html": "gan_test_outputs\\doc_21_invoice_legal_advisory_retainer_statement.html",
+      "status": "PASS"
+    },
+    {
+      "index": 22,
+      "id": "doc_22",
+      "filename": "invoice_freight_&_logistics_shipping_invoice.png",
+      "category": "Invoice",
+      "realism_score": 0.9363,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.575
+      },
+      "output_html": "gan_test_outputs\\doc_22_invoice_freight_&_logistics_shipping_invoice.html",
+      "status": "PASS"
+    },
+    {
+      "index": 23,
+      "id": "doc_23",
+      "filename": "invoice_saas_annual_license_subscription.png",
+      "category": "Invoice",
+      "realism_score": 0.94,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.6
+      },
+      "output_html": "gan_test_outputs\\doc_23_invoice_saas_annual_license_subscription.html",
+      "status": "PASS"
+    },
+    {
+      "index": 24,
+      "id": "doc_24",
+      "filename": "invoice_office_workspace_lease_statement.png",
+      "category": "Invoice",
+      "realism_score": 0.9363,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.575
+      },
+      "output_html": "gan_test_outputs\\doc_24_invoice_office_workspace_lease_statement.html",
+      "status": "PASS"
+    },
+    {
+      "index": 25,
+      "id": "doc_25",
+      "filename": "invoice_component_fabrication_&_tooling_bill.png",
+      "category": "Invoice",
+      "realism_score": 0.9363,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.575
+      },
+      "output_html": "gan_test_outputs\\doc_25_invoice_component_fabrication_&_tooling_bill.html",
+      "status": "PASS"
+    },
+    {
+      "index": 26,
+      "id": "doc_26",
+      "filename": "certificate_alex_rivera.png",
+      "category": "Certificate",
+      "realism_score": 0.94,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.6
+      },
+      "output_html": "gan_test_outputs\\doc_26_certificate_alex_rivera.html",
+      "status": "PASS"
+    },
+    {
+      "index": 27,
+      "id": "doc_27",
+      "filename": "certificate_jordan_lee.png",
+      "category": "Certificate",
+      "realism_score": 0.9229,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.486
+      },
+      "output_html": "gan_test_outputs\\doc_27_certificate_jordan_lee.html",
+      "status": "PASS"
+    },
+    {
+      "index": 28,
+      "id": "doc_28",
+      "filename": "certificate_elena_rostova.png",
+      "category": "Certificate",
+      "realism_score": 0.9314,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.543
+      },
+      "output_html": "gan_test_outputs\\doc_28_certificate_elena_rostova.html",
+      "status": "PASS"
+    },
+    {
+      "index": 29,
+      "id": "doc_29",
+      "filename": "certificate_morgan_chen.png",
+      "category": "Certificate",
+      "realism_score": 0.925,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.5
+      },
+      "output_html": "gan_test_outputs\\doc_29_certificate_morgan_chen.html",
+      "status": "PASS"
+    },
+    {
+      "index": 30,
+      "id": "doc_30",
+      "filename": "certificate_david_kim.png",
+      "category": "Certificate",
+      "realism_score": 0.9357,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.571
+      },
+      "output_html": "gan_test_outputs\\doc_30_certificate_david_kim.html",
+      "status": "PASS"
+    },
+    {
+      "index": 31,
+      "id": "doc_31",
+      "filename": "certificate_priya_sharma.png",
+      "category": "Certificate",
+      "realism_score": 0.9292,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.528
+      },
+      "output_html": "gan_test_outputs\\doc_31_certificate_priya_sharma.html",
+      "status": "PASS"
+    },
+    {
+      "index": 32,
+      "id": "doc_32",
+      "filename": "certificate_marcus_vance.png",
+      "category": "Certificate",
+      "realism_score": 0.9271,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.514
+      },
+      "output_html": "gan_test_outputs\\doc_32_certificate_marcus_vance.html",
+      "status": "PASS"
+    },
+    {
+      "index": 33,
+      "id": "doc_33",
+      "filename": "certificate_sophia_lin.png",
+      "category": "Certificate",
+      "realism_score": 0.9271,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.514
+      },
+      "output_html": "gan_test_outputs\\doc_33_certificate_sophia_lin.html",
+      "status": "PASS"
+    },
+    {
+      "index": 34,
+      "id": "doc_34",
+      "filename": "certificate_rachel_green.png",
+      "category": "Certificate",
+      "realism_score": 0.9292,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.528
+      },
+      "output_html": "gan_test_outputs\\doc_34_certificate_rachel_green.html",
+      "status": "PASS"
+    },
+    {
+      "index": 35,
+      "id": "doc_35",
+      "filename": "certificate_sarah_jenkins.png",
+      "category": "Certificate",
+      "realism_score": 0.9271,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.514
+      },
+      "output_html": "gan_test_outputs\\doc_35_certificate_sarah_jenkins.html",
+      "status": "PASS"
+    },
+    {
+      "index": 36,
+      "id": "doc_36",
+      "filename": "bank_form_36.png",
+      "category": "Bank Form",
+      "realism_score": 0.9125,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 0.8,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.75
+      },
+      "output_html": "gan_test_outputs\\doc_36_bank_form_36.html",
+      "status": "PASS"
+    },
+    {
+      "index": 37,
+      "id": "doc_37",
+      "filename": "bank_form_37.png",
+      "category": "Bank Form",
+      "realism_score": 0.9125,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 0.8,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.75
+      },
+      "output_html": "gan_test_outputs\\doc_37_bank_form_37.html",
+      "status": "PASS"
+    },
+    {
+      "index": 38,
+      "id": "doc_38",
+      "filename": "bank_form_38.png",
+      "category": "Bank Form",
+      "realism_score": 0.9125,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 0.8,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.75
+      },
+      "output_html": "gan_test_outputs\\doc_38_bank_form_38.html",
+      "status": "PASS"
+    },
+    {
+      "index": 39,
+      "id": "doc_39",
+      "filename": "bank_form_39.png",
+      "category": "Bank Form",
+      "realism_score": 0.9088,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 0.8,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.725
+      },
+      "output_html": "gan_test_outputs\\doc_39_bank_form_39.html",
+      "status": "PASS"
+    },
+    {
+      "index": 40,
+      "id": "doc_40",
+      "filename": "bank_form_40.png",
+      "category": "Bank Form",
+      "realism_score": 0.9163,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 0.8,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.775
+      },
+      "output_html": "gan_test_outputs\\doc_40_bank_form_40.html",
+      "status": "PASS"
+    },
+    {
+      "index": 41,
+      "id": "doc_41",
+      "filename": "letterhead_41.png",
+      "category": "Corporate Letterhead",
+      "realism_score": 0.9238,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 0.8,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.825
+      },
+      "output_html": "gan_test_outputs\\doc_41_letterhead_41.html",
+      "status": "PASS"
+    },
+    {
+      "index": 42,
+      "id": "doc_42",
+      "filename": "letterhead_42.png",
+      "category": "Corporate Letterhead",
+      "realism_score": 0.9238,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 0.8,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.825
+      },
+      "output_html": "gan_test_outputs\\doc_42_letterhead_42.html",
+      "status": "PASS"
+    },
+    {
+      "index": 43,
+      "id": "doc_43",
+      "filename": "letterhead_43.png",
+      "category": "Corporate Letterhead",
+      "realism_score": 0.9238,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 0.8,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.825
+      },
+      "output_html": "gan_test_outputs\\doc_43_letterhead_43.html",
+      "status": "PASS"
+    },
+    {
+      "index": 44,
+      "id": "doc_44",
+      "filename": "letterhead_44.png",
+      "category": "Corporate Letterhead",
+      "realism_score": 0.9238,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 0.8,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.825
+      },
+      "output_html": "gan_test_outputs\\doc_44_letterhead_44.html",
+      "status": "PASS"
+    },
+    {
+      "index": 45,
+      "id": "doc_45",
+      "filename": "letterhead_45.png",
+      "category": "Corporate Letterhead",
+      "realism_score": 0.9238,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 0.8,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 0.825
+      },
+      "output_html": "gan_test_outputs\\doc_45_letterhead_45.html",
+      "status": "PASS"
+    },
+    {
+      "index": 46,
+      "id": "doc_46",
+      "filename": "tech_report_46.png",
+      "category": "Technical Report",
+      "realism_score": 1.0,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 1.0
+      },
+      "output_html": "gan_test_outputs\\doc_46_tech_report_46.html",
+      "status": "PASS"
+    },
+    {
+      "index": 47,
+      "id": "doc_47",
+      "filename": "tech_report_47.png",
+      "category": "Technical Report",
+      "realism_score": 1.0,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 1.0
+      },
+      "output_html": "gan_test_outputs\\doc_47_tech_report_47.html",
+      "status": "PASS"
+    },
+    {
+      "index": 48,
+      "id": "doc_48",
+      "filename": "tech_report_48.png",
+      "category": "Technical Report",
+      "realism_score": 1.0,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 1.0
+      },
+      "output_html": "gan_test_outputs\\doc_48_tech_report_48.html",
+      "status": "PASS"
+    },
+    {
+      "index": 49,
+      "id": "doc_49",
+      "filename": "tech_report_49.png",
+      "category": "Technical Report",
+      "realism_score": 1.0,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 1.0
+      },
+      "output_html": "gan_test_outputs\\doc_49_tech_report_49.html",
+      "status": "PASS"
+    },
+    {
+      "index": 50,
+      "id": "doc_50",
+      "filename": "tech_report_50.png",
+      "category": "Technical Report",
+      "realism_score": 1.0,
+      "dimensions": {
+        "canvas_a4": 1.0,
+        "structural_tags": 1.0,
+        "typography": 1.0,
+        "logo_isolation": 1.0,
+        "content_fidelity": 1.0
+      },
+      "output_html": "gan_test_outputs\\doc_50_tech_report_50.html",
+      "status": "PASS"
+    }
+  ]
+}

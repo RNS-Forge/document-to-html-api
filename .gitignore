@@ -16,3 +16,5 @@ build/
 *.swo
 uploads/
 temp/
+test_outputs/
+gan_test_outputs/*.html
